@@ -47,20 +47,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exhaustive", action="store_true", help="score every pair (slow)")
     parser.add_argument("--no-model", action="store_true", help="fuzzy-only, skip Laya")
     parser.add_argument("--multilingual", action="store_true", help="use the multilingual checkpoint")
-    parser.add_argument(
-        "--target-format",
-        choices=["spans", "conjunctions", "none"],
-        default="spans",
-        help=(
-            "how to read each target cell: 'spans' (all name fragments, handles "
-            "parent+student and 'y'/'and' siblings), 'conjunctions' (split on "
-            "y/and/&/...), or 'none' (cell is one name). Default: spans"
-        ),
-    )
-    parser.add_argument(
-        "--variant-max-tokens", type=int, default=4,
-        help="longest name fragment to consider in spans mode (default: 4)",
-    )
     parser.add_argument("--device", default=None, help="mps, cuda or cpu (auto-detected)")
     parser.add_argument(
         "--prefetch",
@@ -138,8 +124,6 @@ def main(argv: list[str] | None = None) -> int:
         exhaustive=args.exhaustive,
         strip_org_suffixes=args.strip_org_suffixes,
         model_weight=args.model_weight,
-        target_format=args.target_format,
-        variant_max_tokens=args.variant_max_tokens,
     )
 
     started = time.time()

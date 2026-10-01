@@ -21,14 +21,17 @@ QUESTION = {
     "same_entity": {
         "type": "choice",
         "instructions": (
-            "Two strings taken from lists of names are shown. Decide whether they "
-            "denote the same real-world person or organisation, allowing different "
-            "word order, spelling variants and typos, initials, accents, "
-            "transliteration, nicknames and abbreviations."
+            "The first string is a name from a source list. The second string is an "
+            "entry from a target list and may contain one or more names, a parent's "
+            "name next to a child's, extra words, or a slight variation in spelling. "
+            "Does the target entry refer to the same person as the source name?"
         ),
         "criteria": {
-            "same": "the same entity",
-            "different": "different entities",
+            "same": (
+                "the target refers to that same person, even if it is only one of "
+                "several names listed or a slight spelling variation"
+            ),
+            "different": "the target does not refer to that person",
             "uncertain": "not enough information to tell",
         },
     }
@@ -92,7 +95,7 @@ class LayaNameScorer:
     def score(self, name_a: str, name_b: str) -> dict:
         """Return calibrated probabilities for a pair of names."""
         agent = self.ensure_loaded()
-        state = {"name_a": name_a, "name_b": name_b}
+        state = {"source_name": name_a, "target_name": name_b}
         with self._lock:
             result = agent.predict(state, QUESTION, min_confidence=0.0)
         answer = result["answers"]["same_entity"]

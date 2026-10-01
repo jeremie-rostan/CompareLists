@@ -79,8 +79,6 @@ def run_comparison(
     review_threshold,
     auto_accept_ratio,
     max_candidates,
-    target_format,
-    variant_max_tokens,
     exhaustive,
     device,
     progress=gr.Progress(),
@@ -112,8 +110,6 @@ def run_comparison(
         use_model=use_model,
         exhaustive=exhaustive,
         strip_org_suffixes=strip_org,
-        target_format=target_format,
-        variant_max_tokens=int(variant_max_tokens),
     )
 
     def on_progress(current, total, name):
@@ -202,20 +198,6 @@ def build_ui() -> gr.Blocks:
                 device = gr.Dropdown(
                     choices=["auto", "mps", "cuda", "cpu"], value="auto", label="Compute device"
                 )
-            with gr.Row():
-                target_format = gr.Dropdown(
-                    choices=["spans", "conjunctions", "none"],
-                    value="spans",
-                    label="How to read each target cell",
-                    info=(
-                        "spans: any name fragment (handles parent+student and 'y'/'and' "
-                        "siblings); conjunctions: split on y/and/&; none: one name per cell"
-                    ),
-                )
-                variant_max_tokens = gr.Slider(
-                    1, 8, value=4, step=1,
-                    label="Longest name fragment (spans mode)",
-                )
 
         run_btn = gr.Button("Find matches", variant="primary")
 
@@ -247,8 +229,7 @@ def build_ui() -> gr.Blocks:
                 source_file, source_col, target_file, target_col,
                 use_model, multilingual, strip_org,
                 accept_threshold, confidence_floor, review_threshold,
-                auto_accept_ratio, max_candidates, target_format, variant_max_tokens,
-                exhaustive, device,
+                auto_accept_ratio, max_candidates, exhaustive, device,
             ],
             outputs=[
                 summary, best_table, unmatched_table, review_table, pairs_table,

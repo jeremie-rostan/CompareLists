@@ -2,19 +2,17 @@
 
 Pipeline:
 
-1. **Expand** - each target cell is turned into candidate name variants
-   (:mod:`comparelists.variants`), so a cell that holds a parent plus one or more
-   students, or siblings joined by "y"/"and", can still match.
-2. **Exact pass** - names whose order-insensitive :func:`signature` matches are
+1. **Exact pass** - names whose order-insensitive :func:`signature` matches are
    accepted without touching the model.
-3. **Blocking** - for everything else we use RapidFuzz to keep only the top-K
-   most similar target variants per source name, so we never evaluate the full
-   Cartesian product.
-4. **Decision** - each surviving pair is forwarded to the local Laya model as a
-   three-way ``choice`` question ("same" / "different" / "uncertain"). A pair is
-   accepted only when Laya says "same", the probability clears
-   ``accept_threshold`` and the answer is sufficiently confident. Borderline
-   pairs are surfaced as *needs review*.
+2. **Blocking** - for each source name, RapidFuzz keeps only the top-K most
+   similar target entries, so we never evaluate the full Cartesian product.
+3. **Decision** - each surviving pair is forwarded to the local Laya model as a
+   three-way ``choice`` question: *does this target entry refer to this source
+   person?* (same / different / uncertain). The target entry may contain a parent
+   plus one or more children, several names, extra words, or a slight spelling
+   variation; the model reads the whole entry. A pair is accepted only when Laya
+   answers "same", the probability clears ``accept_threshold`` and the answer is
+   sufficiently confident. Borderline pairs are surfaced as *needs review*.
 
 Everything happens on-device: the only network access is the one-time model
 download by ``huggingface_hub``.
@@ -28,7 +26,6 @@ from typing import Callable, Iterable, Optional
 from rapidfuzz import fuzz, process
 
 from .normalize import normalize, signature
-from .variants import expand_variants
 
 ProgressFn = Callable[[int, int, str], None]
 
@@ -45,17 +42,6 @@ class MatchConfig:
     exhaustive: bool = False
     strip_org_suffixes: bool = False
     model_weight: float = 0.5
-    target_format: str = "spans"
-    variant_max_tokens: int = 4
-
-
-@dataclass
-class TargetEntry:
-    row: int
-    cell: str
-    variant: str
-    norm: str
-    sig: str
 
 
 @dataclass
@@ -64,7 +50,6 @@ class PairResult:
     source_row: int
     target: str
     target_row: int
-    variant: str
     method: str
     fuzzy: float
     strict: float
@@ -79,9 +64,8 @@ class PairResult:
         return {
             "source_name": self.source,
             "source_row": self.source_row,
-            "target_cell": self.target,
+            "matched_entry": self.target,
             "target_row": self.target_row,
-            "target_variant": self.variant,
             "decision": "match" if self.decision else "no match",
             "needs_review": self.needs_review,
             "method": self.method,
@@ -101,22 +85,11 @@ class MatchReport:
     unmatched: list[tuple[int, str]] = field(default_factory=list)
 
     @staticmethod
-    def _best_per_row(pairs: Iterable[PairResult]) -> list[PairResult]:
-        best: dict[tuple[int, int], PairResult] = {}
-        for pair in pairs:
-            key = (pair.source_row, pair.target_row)
-            if key not in best or pair.combined > best[key].combined:
-                best[key] = pair
-        return sorted(best.values(), key=lambda p: (p.source_row, p.target_row))
-
-    @staticmethod
     def _alpha_key(pair: PairResult):
         return (normalize(pair.source), normalize(pair.target), pair.source_row, pair.target_row)
 
     def matched_pairs(self) -> list[PairResult]:
-        return sorted(
-            self._best_per_row(p for p in self.pairs if p.decision), key=self._alpha_key
-        )
+        return sorted((p for p in self.pairs if p.decision), key=self._alpha_key)
 
     def best_matches(self) -> list[PairResult]:
         return sorted(self.best_by_source.values(), key=self._alpha_key)
@@ -131,9 +104,7 @@ class MatchReport:
         """Borderline pairs belonging to source names that were not matched."""
         unmatched_rows = {row for row, _ in self.unmatched}
         return sorted(
-            self._best_per_row(
-                p for p in self.pairs if p.needs_review and p.source_row in unmatched_rows
-            ),
+            (p for p in self.pairs if p.needs_review and p.source_row in unmatched_rows),
             key=self._alpha_key,
         )
 
@@ -149,33 +120,6 @@ class MatchReport:
         }
 
 
-def _build_entries(target_names: list[str], cfg: MatchConfig) -> list[TargetEntry]:
-    strip_org = cfg.strip_org_suffixes
-    entries: list[TargetEntry] = []
-    for row, cell in enumerate(target_names):
-        variants = expand_variants(cell, mode=cfg.target_format, max_tokens=cfg.variant_max_tokens)
-        if not variants:
-            variants = [cell]
-        for variant in variants:
-            entries.append(
-                TargetEntry(
-                    row=row,
-                    cell=cell,
-                    variant=variant,
-                    norm=normalize(variant, strip_org_suffixes=strip_org),
-                    sig=signature(variant, strip_org_suffixes=strip_org),
-                )
-            )
-    return entries
-
-
-def _index_by_signature(entries: list[TargetEntry]) -> dict[str, list[int]]:
-    mapping: dict[str, list[int]] = {}
-    for idx, entry in enumerate(entries):
-        mapping.setdefault(entry.sig, []).append(idx)
-    return mapping
-
-
 def match_lists(
     source_names: list[str],
     target_names: list[str],
@@ -187,12 +131,15 @@ def match_lists(
     cfg = config or MatchConfig()
     report = MatchReport()
 
-    entries = _build_entries(target_names, cfg)
-    entry_by_sig = _index_by_signature(entries)
-    unique_entry_sigs = sorted(entry_by_sig)
-
     source_norm = [normalize(n, strip_org_suffixes=cfg.strip_org_suffixes) for n in source_names]
+    target_norm = [normalize(n, strip_org_suffixes=cfg.strip_org_suffixes) for n in target_names]
     source_sig = [signature(n, strip_org_suffixes=cfg.strip_org_suffixes) for n in source_names]
+    target_sig = [signature(n, strip_org_suffixes=cfg.strip_org_suffixes) for n in target_names]
+
+    target_by_sig: dict[str, list[int]] = {}
+    for idx, sig in enumerate(target_sig):
+        target_by_sig.setdefault(sig, []).append(idx)
+    unique_target_sigs = sorted(target_by_sig)
 
     if scorer is not None:
         scorer.ensure_loaded()
@@ -204,17 +151,15 @@ def match_lists(
         if progress:
             progress(i, total, src_name)
 
-        exact = entry_by_sig.get(sig)
+        exact = target_by_sig.get(sig)
         if exact:
-            for entry_idx in exact:
-                entry = entries[entry_idx]
+            for j in exact:
                 report.pairs.append(
                     PairResult(
                         source=src_name,
                         source_row=i,
-                        target=entry.cell,
-                        target_row=entry.row,
-                        variant=entry.variant,
+                        target=target_names[j],
+                        target_row=j,
                         method="exact",
                         fuzzy=100.0,
                         strict=100.0,
@@ -229,12 +174,12 @@ def match_lists(
             continue
 
         candidates = _candidates(
-            source_norm[i], sig, unique_entry_sigs, entry_by_sig, entries, cfg
+            source_norm[i], sig, unique_target_sigs, target_by_sig, target_norm, target_sig, cfg
         )
 
         best: Optional[PairResult] = None
-        for entry_idx, rank, strict in candidates:
-            pair = _evaluate_pair(src_name, i, entries[entry_idx], rank, strict, scorer, cfg)
+        for j, rank, strict in candidates:
+            pair = _evaluate_pair(src_name, i, target_names[j], j, rank, strict, scorer, cfg)
             report.pairs.append(pair)
             if pair.decision and (best is None or pair.combined > best.combined):
                 best = pair
@@ -252,25 +197,26 @@ def match_lists(
 def _candidates(
     source_norm: str,
     source_sig: str,
-    unique_entry_sigs: list[str],
-    entry_by_sig: dict[str, list[int]],
-    entries: list[TargetEntry],
+    unique_target_sigs: list[str],
+    target_by_sig: dict[str, list[int]],
+    target_norm: list[str],
+    target_sig: list[str],
     cfg: MatchConfig,
 ) -> list[tuple[int, float, float]]:
-    if not unique_entry_sigs:
+    if not unique_target_sigs:
         return []
 
     scored: list[tuple[int, float]] = []
     if cfg.exhaustive:
-        for idx, entry in enumerate(entries):
-            rank = max(fuzz.WRatio(source_norm, entry.norm), fuzz.WRatio(source_sig, entry.sig))
+        for idx, sig in enumerate(target_sig):
+            rank = max(fuzz.WRatio(source_norm, target_norm[idx]), fuzz.WRatio(source_sig, sig))
             scored.append((idx, float(rank)))
     else:
         matches = process.extract(
-            source_norm, unique_entry_sigs, scorer=fuzz.WRatio, limit=cfg.max_candidates
+            source_norm, unique_target_sigs, scorer=fuzz.WRatio, limit=cfg.max_candidates
         )
         for sig, score, _ in matches:
-            for idx in entry_by_sig[sig]:
+            for idx in target_by_sig[sig]:
                 scored.append((idx, float(score)))
 
     if cfg.candidate_floor > 0:
@@ -287,13 +233,14 @@ def _candidates(
         deduped.sort(key=lambda x: x[1], reverse=True)
         deduped = deduped[: cfg.max_candidates]
 
-    return [(idx, rank, fuzz.ratio(source_sig, entries[idx].sig)) for idx, rank in deduped]
+    return [(idx, rank, fuzz.ratio(source_sig, target_sig[idx])) for idx, rank in deduped]
 
 
 def _evaluate_pair(
     source: str,
     source_row: int,
-    entry: TargetEntry,
+    target: str,
+    target_row: int,
     fuzzy: float,
     strict: float,
     scorer,
@@ -303,9 +250,8 @@ def _evaluate_pair(
         return PairResult(
             source=source,
             source_row=source_row,
-            target=entry.cell,
-            target_row=entry.row,
-            variant=entry.variant,
+            target=target,
+            target_row=target_row,
             method="fuzzy-high",
             fuzzy=fuzzy,
             strict=strict,
@@ -322,7 +268,7 @@ def _evaluate_pair(
     combined = fuzzy / 100.0
 
     if cfg.use_model and scorer is not None:
-        result = scorer.score(source, entry.variant)
+        result = scorer.score(source, target)
         same_prob = result["same_prob"]
         confidence = result["confidence"]
         choice = result["choice"]
@@ -342,9 +288,8 @@ def _evaluate_pair(
     return PairResult(
         source=source,
         source_row=source_row,
-        target=entry.cell,
-        target_row=entry.row,
-        variant=entry.variant,
+        target=target,
+        target_row=target_row,
         method="laya" if same_prob is not None else "fuzzy",
         fuzzy=fuzzy,
         strict=strict,

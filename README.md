@@ -21,16 +21,12 @@ them are sorted alphabetically by source name.
 
 ## How it works
 
-1. **Expand** each target cell into candidate name fragments (see
-   [Messy target columns](#messy-target-columns-parent--student-siblings)), so a
-   cell holding a parent plus a student, or siblings joined by `y`/`and`, can
-   still match.
-2. **Normalise** every name: lowercase, de-accent, transliterate (`Þ` → `th`),
+1. **Normalise** every name: lowercase, de-accent, transliterate (`Þ` → `th`),
    strip punctuation. An order-insensitive *signature* catches exact matches
    without touching the model.
-3. **Block**: for each source name, RapidFuzz keeps only the top-K most similar
-   target fragments, so we never run the model on the full Cartesian product.
-4. **Decide**: each surviving pair is sent to Laya as a three-way `choice`
+2. **Block**: for each source name, RapidFuzz keeps only the top-K most similar
+   target entries, so we never run the model on the full Cartesian product.
+3. **Decide**: each surviving pair is sent to Laya as a three-way `choice`
    question — *same entity* / *different entity* / *uncertain*. A pair is
    accepted only when Laya answers **same**, the probability clears
    `accept_threshold`, and the answer clears `confidence_floor`. Pairs that are
@@ -83,8 +79,6 @@ Useful flags:
 | `--strip-org-suffixes` | ignore `Ltd`, `Inc`, `Corporation`… |
 | `--no-model` | fuzzy-only, no model download |
 | `--multilingual` | use the multilingual checkpoint for non-Latin scripts |
-| `--target-format` | how to read each target cell: `spans` (default), `conjunctions` or `none` |
-| `--variant-max-tokens` | longest name fragment in `spans` mode (default `4`) |
 | `--device` | `mps`, `cuda` or `cpu` (default: auto-detect) |
 | `--prefetch` | download the model, then exit (no CSV needed) |
 | `--offline` | never touch the network; fail if the model is not cached |
@@ -171,27 +165,28 @@ Rosters often put more than one name in a single target cell:
 "Roberto Sánchez, Ana Sánchez"     comma separated
 ```
 
-By default (`--target-format spans`) each cell is expanded into every contiguous
-name fragment of up to `--variant-max-tokens` tokens (4 by default), plus the
-full cell. The full cell is always included, so a clean single-name column still
-behaves exactly as before. `conjunctions` only splits on `y`/`and`/`&`/`,`/`/`,
-and `none` treats each cell as one name.
+You do **not** need to split these columns. The model is asked, for each source
+name, whether a target entry *refers to that person* - the entry may hold a
+parent next to one or more children, several names, extra words, or a slight
+spelling variation. It reads the whole entry and answers same / different /
+uncertain, so a student is found even when the cell starts with a parent.
 
-The result's `target_variant` column shows which fragment matched, and
-`target_cell` shows the original household text, so you can see exactly how a
-match was made. Try it:
+Try it:
 
 ```bash
 uv run comparelists examples/parents_source.csv examples/parents_target.csv \
   --source-col full_name --target-col household
 ```
 
-| Source | Target cell | Matched fragment |
+| Source | Target entry | Result |
 | --- | --- | --- |
-| `Pedro Ramírez` | `María González Pedro Ramírez` | `Pedro Ramírez` |
-| `Lucía Pérez` | `Juan Pérez y Lucía Pérez` | `Lucía Pérez` |
-| `Erica Thompson` | `Kathy and Erica Thompson` | `Erica Thompson` |
-| `Ana Sánchez` | `Roberto Sánchez, Ana Sánchez` | `Ana Sánchez` |
+| `Pedro Ramírez` | `María González Pedro Ramírez` | match |
+| `Lucía Pérez` | `Juan Pérez y Lucía Pérez` | match |
+| `Erica Thompson` | `Kathy and Erica Thompson` | match |
+| `Ana Sánchez` | `Roberto Sánchez, Ana Sánchez` | match |
+
+The `matched_entry` column shows the original target cell so you can audit each
+match.
 
 ## Tuning matching quality
 
@@ -231,7 +226,6 @@ Project layout:
 ```
 src/comparelists/
   normalize.py      de-accent, transliterate, order-insensitive signatures
-  variants.py       expand a messy target cell into candidate name fragments
   pipeline.py       blocking + decision logic + report dataclasses
   laya_matcher.py   local Laya wrapper (model load, choice question, probabilities)
   io.py             CSV read/write

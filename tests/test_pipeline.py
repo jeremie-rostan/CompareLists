@@ -101,7 +101,7 @@ def test_outputs_are_alphabetical():
         ["Zoe", "Ana", "Mike"],
         ["Zoe", "Ana"],
         scorer=scorer,
-        config=MatchConfig(target_format="none"),
+        config=MatchConfig(),
     )
     assert [p.source for p in report.best_matches()] == ["Ana", "Zoe"]
     assert [name for _, name in report.unmatched_sorted()] == ["Mike"]
