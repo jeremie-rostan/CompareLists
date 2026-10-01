@@ -10,8 +10,18 @@ All inference stays on the machine that launches this process.
 
 from __future__ import annotations
 
-import argparse
 import os
+import sys
+
+# Offline support must be decided before gradio / huggingface_hub are imported,
+# because they freeze these flags at import time.
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+if "--offline" in sys.argv:
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+import argparse
 import tempfile
 
 import gradio as gr
@@ -232,6 +242,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1", help="bind address (0.0.0.0 to share on your LAN)")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--share", action="store_true", help="create a temporary public Gradio link")
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="never touch the network; requires the model to be cached first",
+    )
     args = parser.parse_args(argv)
 
     build_ui().launch(

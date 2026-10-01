@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import sys
+
+# Offline support must be decided before huggingface_hub is imported anywhere,
+# because it freezes these flags at import time.
+if "--offline" in sys.argv:
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+import argparse
 import time
 
 from . import __version__
@@ -20,8 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
             "locally, using the Laya decision model."
         ),
     )
-    parser.add_argument("source", help="CSV with the source-of-truth names")
-    parser.add_argument("target", help="CSV with the list to search")
+    parser.add_argument("source", nargs="?", help="CSV with the source-of-truth names")
+    parser.add_argument("target", nargs="?", help="CSV with the list to search")
     parser.add_argument("--source-col", help="column holding names in the source CSV")
     parser.add_argument("--target-col", help="column holding names in the target CSV")
     parser.add_argument(
@@ -41,10 +48,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-model", action="store_true", help="fuzzy-only, skip Laya")
     parser.add_argument("--multilingual", action="store_true", help="use the multilingual checkpoint")
     parser.add_argument("--device", default=None, help="mps, cuda or cpu (auto-detected)")
+    parser.add_argument(
+        "--prefetch",
+        action="store_true",
+        help="download the model, then exit (run once online to enable --offline later)",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="never touch the network; fail if the model is not already cached",
+    )
     parser.add_argument("--strip-org-suffixes", action="store_true")
     parser.add_argument("--delimiter", default=None, help="input delimiter (auto-detected)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
+
+
+def _prefetch(args) -> int:
+    from .laya_matcher import LayaNameScorer
+
+    scorer = LayaNameScorer(multilingual=args.multilingual, device=args.device)
+    print(f"downloading Laya on {scorer.device}...")
+    started = time.time()
+    scorer.ensure_loaded()
+    print(f"model cached in {time.time() - started:.1f}s")
+    print("now run with --offline to work without a network connection")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -56,6 +85,13 @@ def main(argv: list[str] | None = None) -> int:
             for column in list_columns(path, args.delimiter):
                 print(f"  - {column}")
         return 0
+
+    if args.prefetch:
+        return _prefetch(args)
+
+    if not args.source or not args.target:
+        print("error: provide a source CSV and a target CSV (try --help)", file=sys.stderr)
+        return 2
 
     if not args.source_col or not args.target_col:
         print("error: --source-col and --target-col are required (try --list-columns)", file=sys.stderr)

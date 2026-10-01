@@ -79,6 +79,8 @@ Useful flags:
 | `--no-model` | fuzzy-only, no model download |
 | `--multilingual` | use the multilingual checkpoint for non-Latin scripts |
 | `--device` | `mps`, `cuda` or `cpu` (default: auto-detect) |
+| `--prefetch` | download the model, then exit (no CSV needed) |
+| `--offline` | never touch the network; fail if the model is not cached |
 
 The example lists live in `examples/` — try:
 
@@ -97,6 +99,25 @@ uv run comparelists-web --share      # temporary public Gradio link (compute sta
 
 In the browser: upload both CSVs, pick the name column for each, then click
 **Find matches**. Results and the four CSVs are downloadable.
+
+### Working offline
+
+The first run needs a network connection to download the model (English
+checkpoint, ~1.6 GB) into the Hugging Face cache. After that, everything works
+with wifi off.
+
+To download deliberately, then run offline:
+
+```bash
+uv run comparelists --prefetch     # one online run: fetch and cache the model
+uv run comparelists examples/source.csv examples/target.csv \
+  --source-col full_name --target-col attendee --offline
+uv run comparelists-web --offline  # same for the web UI
+```
+
+`--offline` sets `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1` before anything is
+imported, so the process fails loudly instead of silently reaching the network.
+The web UI also disables Gradio analytics.
 
 ---
 
@@ -155,7 +176,8 @@ Real examples from `examples/`:
 
 - No network calls after the one-time model download.
 - No telemetry from this app; no names written outside your output directory.
-- Set `HF_HUB_OFFLINE=1` to prove it runs offline once the model is cached.
+- Set `HF_HUB_OFFLINE=1` (or pass `--offline`) to prove it runs offline once the
+  model is cached.
 
 ## Development
 
