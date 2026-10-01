@@ -88,7 +88,7 @@ def run_comparison(
     if use_model:
         scorer = _get_scorer(multilingual, device)
         device_used = scorer.device
-        progress(0, 1, desc="Loading Laya (first run downloads the model)")
+        progress(0.0, desc="Loading Laya (first run downloads the model)")
         scorer.ensure_loaded()
 
     config = MatchConfig(
