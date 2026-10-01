@@ -1,0 +1,124 @@
+"""Command-line entry point: ``comparelists``."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import time
+
+from . import __version__
+from .io import column_values, list_columns, write_results
+from .pipeline import MatchConfig, match_lists
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="comparelists",
+        description=(
+            "Find names from a source-of-truth list inside a second list, "
+            "locally, using the Laya decision model."
+        ),
+    )
+    parser.add_argument("source", help="CSV with the source-of-truth names")
+    parser.add_argument("target", help="CSV with the list to search")
+    parser.add_argument("--source-col", help="column holding names in the source CSV")
+    parser.add_argument("--target-col", help="column holding names in the target CSV")
+    parser.add_argument(
+        "--list-columns",
+        action="store_true",
+        help="print each file's columns and exit (use this first to find your column names)",
+    )
+    parser.add_argument("--output-dir", default="comparison-results", help="where to write CSVs")
+    parser.add_argument("--max-candidates", type=int, default=10)
+    parser.add_argument("--candidate-floor", type=float, default=0.0)
+    parser.add_argument("--accept-threshold", type=float, default=0.5)
+    parser.add_argument("--confidence-floor", type=float, default=0.25)
+    parser.add_argument("--review-threshold", type=float, default=0.4)
+    parser.add_argument("--auto-accept-ratio", type=float, default=97.0)
+    parser.add_argument("--model-weight", type=float, default=0.5)
+    parser.add_argument("--exhaustive", action="store_true", help="score every pair (slow)")
+    parser.add_argument("--no-model", action="store_true", help="fuzzy-only, skip Laya")
+    parser.add_argument("--multilingual", action="store_true", help="use the multilingual checkpoint")
+    parser.add_argument("--device", default=None, help="mps, cuda or cpu (auto-detected)")
+    parser.add_argument("--strip-org-suffixes", action="store_true")
+    parser.add_argument("--delimiter", default=None, help="input delimiter (auto-detected)")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    if args.list_columns:
+        for path in (args.source, args.target):
+            print(f"{path}:")
+            for column in list_columns(path, args.delimiter):
+                print(f"  - {column}")
+        return 0
+
+    if not args.source_col or not args.target_col:
+        print("error: --source-col and --target-col are required (try --list-columns)", file=sys.stderr)
+        return 2
+
+    source_names = column_values(args.source, args.source_col, args.delimiter)
+    target_names = column_values(args.target, args.target_col, args.delimiter)
+
+    print(f"source: {len(source_names):,} names from {args.source!r} [{args.source_col}]")
+    print(f"target: {len(target_names):,} names from {args.target!r} [{args.target_col}]")
+
+    scorer = None
+    if not args.no_model:
+        from .laya_matcher import LayaNameScorer
+
+        scorer = LayaNameScorer(multilingual=args.multilingual, device=args.device)
+        print(f"loading Laya on {scorer.device} (first run downloads the model)...")
+        started = time.time()
+        scorer.ensure_loaded()
+        print(f"model ready in {time.time() - started:.1f}s")
+
+    config = MatchConfig(
+        max_candidates=args.max_candidates,
+        candidate_floor=args.candidate_floor,
+        accept_threshold=args.accept_threshold,
+        confidence_floor=args.confidence_floor,
+        review_threshold=args.review_threshold,
+        auto_accept_ratio=args.auto_accept_ratio,
+        use_model=not args.no_model,
+        exhaustive=args.exhaustive,
+        strip_org_suffixes=args.strip_org_suffixes,
+        model_weight=args.model_weight,
+    )
+
+    started = time.time()
+    report = match_lists(source_names, target_names, scorer=scorer, config=config)
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    pairs_path = os.path.join(args.output_dir, "all_pairs.csv")
+    best_path = os.path.join(args.output_dir, "best_matches.csv")
+    review_path = os.path.join(args.output_dir, "needs_review.csv")
+    unmatched_path = os.path.join(args.output_dir, "unmatched.csv")
+
+    write_results(pairs_path, [p.as_row() for p in report.pairs])
+    write_results(best_path, [p.as_row() for p in report.best_matches()])
+    write_results(review_path, [p.as_row() for p in report.review_pairs()])
+    write_results(
+        unmatched_path,
+        [{"source_name": name, "source_row": row} for row, name in report.unmatched],
+    )
+
+    summary = report.summary()
+    print("\n--- summary ---")
+    for key, value in summary.items():
+        print(f"{key}: {value}")
+    print(f"elapsed: {time.time() - started:.1f}s")
+    print("\nwritten:")
+    print(f"  {pairs_path}       (every pair evaluated)")
+    print(f"  {best_path}        (best match per source name)")
+    print(f"  {review_path}      (borderline pairs worth a human look)")
+    print(f"  {unmatched_path}   (source names with no match)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
