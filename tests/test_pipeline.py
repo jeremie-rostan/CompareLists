@@ -68,12 +68,13 @@ def test_below_threshold_is_unmatched():
 def test_high_fuzzy_auto_accepts_without_model():
     scorer = FakeScorer()
     report = match_lists(
-        ["Jonathan Smith"],
-        ["Jonathon Smith"],
+        ["Jonathon"],
+        ["Jonathan"],
         scorer=scorer,
         config=MatchConfig(auto_accept_ratio=85.0),
     )
     assert report.best_matches()[0].decision
+    assert report.best_matches()[0].method == "fuzzy-high"
     assert scorer.calls == 0
 
 
@@ -92,6 +93,21 @@ def test_best_match_per_source_returns_highest_combined():
     )
     best = report.best_matches()[0]
     assert best.target == "Rob Smith"
+
+
+def test_outputs_are_alphabetical():
+    scorer = FakeScorer()
+    report = match_lists(
+        ["Zoe", "Ana", "Mike"],
+        ["Zoe", "Ana"],
+        scorer=scorer,
+        config=MatchConfig(target_format="none"),
+    )
+    assert [p.source for p in report.best_matches()] == ["Ana", "Zoe"]
+    assert [name for _, name in report.unmatched_sorted()] == ["Mike"]
+    assert [p.source for p in report.all_pairs_sorted()] == sorted(
+        p.source for p in report.pairs
+    )
 
 
 def test_summary_counts():

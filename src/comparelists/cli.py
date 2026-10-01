@@ -47,6 +47,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exhaustive", action="store_true", help="score every pair (slow)")
     parser.add_argument("--no-model", action="store_true", help="fuzzy-only, skip Laya")
     parser.add_argument("--multilingual", action="store_true", help="use the multilingual checkpoint")
+    parser.add_argument(
+        "--target-format",
+        choices=["spans", "conjunctions", "none"],
+        default="spans",
+        help=(
+            "how to read each target cell: 'spans' (all name fragments, handles "
+            "parent+student and 'y'/'and' siblings), 'conjunctions' (split on "
+            "y/and/&/...), or 'none' (cell is one name). Default: spans"
+        ),
+    )
+    parser.add_argument(
+        "--variant-max-tokens", type=int, default=4,
+        help="longest name fragment to consider in spans mode (default: 4)",
+    )
     parser.add_argument("--device", default=None, help="mps, cuda or cpu (auto-detected)")
     parser.add_argument(
         "--prefetch",
@@ -124,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
         exhaustive=args.exhaustive,
         strip_org_suffixes=args.strip_org_suffixes,
         model_weight=args.model_weight,
+        target_format=args.target_format,
+        variant_max_tokens=args.variant_max_tokens,
     )
 
     started = time.time()
@@ -135,12 +151,12 @@ def main(argv: list[str] | None = None) -> int:
     review_path = os.path.join(args.output_dir, "needs_review.csv")
     unmatched_path = os.path.join(args.output_dir, "unmatched.csv")
 
-    write_results(pairs_path, [p.as_row() for p in report.pairs])
+    write_results(pairs_path, [p.as_row() for p in report.all_pairs_sorted()])
     write_results(best_path, [p.as_row() for p in report.best_matches()])
     write_results(review_path, [p.as_row() for p in report.review_pairs()])
     write_results(
         unmatched_path,
-        [{"source_name": name, "source_row": row} for row, name in report.unmatched],
+        [{"source_name": name, "source_row": row} for row, name in report.unmatched_sorted()],
     )
 
     summary = report.summary()
