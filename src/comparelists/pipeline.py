@@ -303,11 +303,7 @@ def _evaluate_pair(
     if same_prob is None:
         decision = False
     else:
-        decision = (
-            choice == "same"
-            and same_prob >= cfg.accept_threshold
-            and (confidence or 0.0) >= cfg.confidence_floor
-        )
+        decision = same_prob >= cfg.accept_threshold and (confidence or 0.0) >= cfg.confidence_floor
 
     needs_review = not decision and same_prob is not None and same_prob >= cfg.review_threshold
 

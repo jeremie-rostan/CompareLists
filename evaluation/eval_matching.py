@@ -40,7 +40,11 @@ def main() -> int:
     expected = {(s, t) for s, t, want in pairs if want}
 
     scorer = LayaNameScorer(model_id=model_id)
-    config = MatchConfig(exhaustive=True, confidence_floor=scorer.config["default_confidence_floor"])
+    config = MatchConfig(
+        exhaustive=True,
+        accept_threshold=scorer.config["default_accept_threshold"],
+        confidence_floor=scorer.config["default_confidence_floor"],
+    )
     report = match_lists(sources, targets, scorer=scorer, config=config)
     accepted = {(p.source, p.target) for p in report.matched_pairs()}
     review = {(p.source, p.target) for p in report.review_pairs()}

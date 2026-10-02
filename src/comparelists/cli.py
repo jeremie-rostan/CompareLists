@@ -39,7 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default="comparison-results", help="where to write CSVs")
     parser.add_argument("--max-candidates", type=int, default=10)
     parser.add_argument("--candidate-floor", type=float, default=0.0)
-    parser.add_argument("--accept-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--accept-threshold",
+        type=float,
+        default=None,
+        help="model probability to accept a match (default: per-checkpoint value)",
+    )
     parser.add_argument(
         "--confidence-floor",
         type=float,
@@ -148,10 +153,14 @@ def main(argv: list[str] | None = None) -> int:
     if confidence_floor is None:
         confidence_floor = scorer.config["default_confidence_floor"] if scorer else 0.0
 
+    accept_threshold = args.accept_threshold
+    if accept_threshold is None:
+        accept_threshold = scorer.config["default_accept_threshold"] if scorer else 0.5
+
     config = MatchConfig(
         max_candidates=args.max_candidates,
         candidate_floor=args.candidate_floor,
-        accept_threshold=args.accept_threshold,
+        accept_threshold=accept_threshold,
         confidence_floor=confidence_floor,
         review_threshold=args.review_threshold,
         auto_accept_ratio=args.auto_accept_ratio,

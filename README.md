@@ -137,9 +137,9 @@ The default is
 [`jeremierostan/laya-pairmatch`](https://huggingface.co/jeremierostan/laya-pairmatch),
 a fine-tune of `convaiinnovations/laya-multilingual` trained to match parent
 payment comments to roster students (siblings, shared surnames, nicknames,
-typos, truncation, amounts, annotations). Its own held-out test set scores
-**0.9933 accuracy**, and it reaches the same 0.9933 end-to-end through this app's
-pipeline (per-row on that test set).
+typos, truncation, amounts, annotations, and surname-only references). Its own
+held-out test set scores **0.9493 accuracy** (n=296), and it reaches **~0.93
+end-to-end** through this app's pipeline on that distribution.
 
 Any Laya-compatible checkpoint can be used with `--model` (CLI) or the **Model
 checkpoint** field (web UI). The input schema is auto-detected, or set explicitly
@@ -159,7 +159,7 @@ pairs, no parent comment), the checkpoints trade off as follows:
 
 | Checkpoint | recall | precision | misses | false positive |
 | --- | --- | --- | --- | --- |
-| `jeremierostan/laya-pairmatch` (default) | 0.90 | 0.95 | reversed nicknames | `Smith` vs `Roberta Smith` |
+| `jeremierostan/laya-pairmatch` (default) | 0.95 | 0.86 | — | `Smith` vs `Roberta Smith` |
 | `convaiinnovations/laya` (base) | 1.00 | 0.95 | none | shared-surname trap |
 
 The base checkpoint has marginally better recall on *bare* name pairs; pairmatch
@@ -258,11 +258,12 @@ uv run python evaluation/eval_matching.py [model_id]
 ```
 
 On the out-of-distribution labelled set (bare name pairs, no parent comment),
-the default `pairmatch` checkpoint scores **recall 0.900, precision 0.947**.
-That set is intentionally harsher than real data: it has no parent comment, so
-nickname and transliteration cases are hard. On the model's own payment-comment
-distribution it scores **0.9933 accuracy end-to-end**, with the only miss a
-borderline nickname.
+the default `pairmatch` checkpoint scores **recall 0.950, precision 0.864** at
+its own tuned threshold. That set is intentionally harsher than real data: it
+has no parent comment, so nickname and transliteration cases are hard. On the
+model's own payment-comment distribution it scores **~0.93** end-to-end, including
+comments that name the student by surnames only. Each checkpoint has its own
+default acceptance threshold (`pairmatch` 0.4, `base` 0.5).
 
 No automatic system is perfect. Always sanity-check `needs_review.csv`, and audit
 `all_pairs.csv` for decisions that share a surname but differ in the given name —

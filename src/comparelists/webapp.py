@@ -105,6 +105,8 @@ def run_comparison(
         scorer.ensure_loaded()
         if abs(confidence_floor - 0.4) < 1e-9:
             confidence_floor = scorer.config["default_confidence_floor"]
+        if abs(accept_threshold - 0.5) < 1e-9:
+            accept_threshold = scorer.config["default_accept_threshold"]
 
     config = MatchConfig(
         max_candidates=int(max_candidates),

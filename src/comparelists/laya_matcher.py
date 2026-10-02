@@ -82,6 +82,7 @@ PRESETS: dict[str, dict] = {
         "questions": BASE_QUESTIONS,
         "answer_key": "same_entity",
         "prob_key": "same",
+        "default_accept_threshold": 0.5,
         "default_confidence_floor": 0.4,
     },
     "pairmatch": {
@@ -89,6 +90,7 @@ PRESETS: dict[str, dict] = {
         "questions": PAIRMATCH_QUESTIONS,
         "answer_key": "match",
         "prob_key": "same",
+        "default_accept_threshold": 0.4,
         "default_confidence_floor": 0.0,
     },
 }
