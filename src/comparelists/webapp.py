@@ -136,9 +136,7 @@ def run_comparison(
     pairs_path = os.path.join(out_dir, "all_pairs.csv")
 
     best_rows = [p.as_row() for p in report.best_matches()]
-    unmatched_rows = [
-        {"source_name": name, "source_row": row} for row, name in report.unmatched_sorted()
-    ]
+    unmatched_rows = report.unmatched_with_candidates()
     review_rows = [p.as_row() for p in report.review_pairs()]
     pair_rows = [p.as_row() for p in report.all_pairs_sorted()]
 

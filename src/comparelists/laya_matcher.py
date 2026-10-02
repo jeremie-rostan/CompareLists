@@ -18,6 +18,7 @@ leaves the machine running the app.
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from typing import Callable, Optional
@@ -68,12 +69,34 @@ PAIRMATCH_QUESTIONS = {
 }
 
 
+def _canon_comment(text: str) -> str:
+    """Canonicalise a payment comment to the shape the pairmatch model saw in training.
+
+    Training comments look like ``PARENT -Child ($16)``: a space before the dash,
+    none after, and always an amount. Real comments vary (``- Child``, en dashes,
+    missing amounts), which the model is very sensitive to. We normalise:
+
+    * unicode dashes to ``-``
+    * any dash used as a separator (whitespace on either side) to ``" -"`` -
+      hyphens inside names such as ``Wei-Lun`` are left untouched
+    * append a neutral amount if none is present
+    """
+    t = str(text)
+    t = t.replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-")
+    t = re.sub(r"\s+-\s*", " -", t)
+    t = re.sub(r"-\s+", " -", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    if t and not re.search(r"\d", t):
+        t = f"{t} ($0)"
+    return t
+
+
 def _base_state(name_a: str, name_b: str) -> dict:
     return {"source_name": name_a, "target_name": name_b}
 
 
 def _pairmatch_state(name_a: str, name_b: str) -> dict:
-    return {"roster_name": name_a, "payment_comment": name_b}
+    return {"roster_name": name_a, "payment_comment": _canon_comment(name_b)}
 
 
 PRESETS: dict[str, dict] = {

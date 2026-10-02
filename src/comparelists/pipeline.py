@@ -101,6 +101,45 @@ class MatchReport:
     def unmatched_sorted(self) -> list[tuple[int, str]]:
         return sorted(self.unmatched, key=lambda item: (normalize(item[1]), item[0]))
 
+    def unmatched_with_candidates(self) -> list[dict]:
+        """Unmatched source names, each with its highest-scoring candidate pair.
+
+        Useful as a human review queue: even when nothing cleared the threshold,
+        the closest candidate and its scores are shown.
+        """
+        best_by_source: dict[int, PairResult] = {}
+        for pair in self.pairs:
+            current = best_by_source.get(pair.source_row)
+            if current is None or (pair.combined, pair.same_prob or 0.0) > (
+                current.combined,
+                current.same_prob or 0.0,
+            ):
+                best_by_source[pair.source_row] = pair
+
+        rows: list[dict] = []
+        for row, name in self.unmatched_sorted():
+            entry: dict = {"source_name": name, "source_row": row}
+            candidate = best_by_source.get(row)
+            if candidate is not None:
+                entry.update(
+                    {
+                        "closest_candidate": candidate.target,
+                        "closest_target_row": candidate.target_row,
+                        "closest_method": candidate.method,
+                        "closest_fuzzy_score": round(candidate.fuzzy, 1),
+                        "closest_strict_score": round(candidate.strict, 1),
+                        "closest_laya_same_prob": (
+                            None if candidate.same_prob is None else round(candidate.same_prob, 4)
+                        ),
+                        "closest_laya_confidence": (
+                            None if candidate.confidence is None else round(candidate.confidence, 4)
+                        ),
+                        "closest_combined_score": round(candidate.combined, 4),
+                    }
+                )
+            rows.append(entry)
+        return rows
+
     def review_pairs(self) -> list[PairResult]:
         """Borderline pairs belonging to source names that were not matched."""
         unmatched_rows = {row for row, _ in self.unmatched}

@@ -15,7 +15,9 @@ decision model.
 Output tells you which source names were found, which second-list name they
 matched, the model's probability and confidence, plus three review files:
 `best_matches.csv`, `needs_review.csv`, `unmatched.csv`, `all_pairs.csv`. All of
-them are sorted alphabetically by source name.
+them are sorted alphabetically by source name. `unmatched.csv` also lists each
+unmatched name's **closest candidate** with its scores, so it doubles as a review
+queue.
 
 ---
 

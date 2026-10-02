@@ -142,6 +142,26 @@ def test_single_token_source_is_not_auto_matched_by_subset():
     assert all(p.method != "subset" for p in report.pairs)
 
 
+def test_unmatched_includes_closest_candidate():
+    scorer = FakeScorer({frozenset(("robert smith", "bob smith")): 0.1})
+    report = match_lists(
+        ["Robert Smith"],
+        ["Bob Smith"],
+        scorer=scorer,
+        config=MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
+    )
+    rows = report.unmatched_with_candidates()
+    assert rows[0]["source_name"] == "Robert Smith"
+    assert rows[0]["closest_candidate"] == "Bob Smith"
+    assert rows[0]["closest_laya_same_prob"] == 0.1
+
+
+def test_unmatched_with_empty_target_has_no_candidate():
+    report = match_lists(["Solo"], [], config=MatchConfig(use_model=False))
+    rows = report.unmatched_with_candidates()
+    assert rows == [{"source_name": "Solo", "source_row": 0}]
+
+
 def test_summary_counts():
     scorer = FakeScorer({frozenset(("robert smith", "bob smith")): 0.9})
     report = match_lists(

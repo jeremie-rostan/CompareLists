@@ -183,10 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     write_results(pairs_path, [p.as_row() for p in report.all_pairs_sorted()])
     write_results(best_path, [p.as_row() for p in report.best_matches()])
     write_results(review_path, [p.as_row() for p in report.review_pairs()])
-    write_results(
-        unmatched_path,
-        [{"source_name": name, "source_row": row} for row, name in report.unmatched_sorted()],
-    )
+    write_results(unmatched_path, report.unmatched_with_candidates())
 
     summary = report.summary()
     print("\n--- summary ---")
