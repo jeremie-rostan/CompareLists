@@ -24,13 +24,21 @@ them are sorted alphabetically by source name.
 1. **Normalise** every name: lowercase, de-accent, transliterate (`Þ` → `th`),
    strip punctuation. An order-insensitive *signature* catches exact matches
    without touching the model.
-2. **Block**: for each source name, RapidFuzz keeps only the top-K most similar
-   target entries, so we never run the model on the full Cartesian product.
-3. **Decide**: each surviving pair is sent to Laya as a three-way `choice`
-   question — *same entity* / *different entity* / *uncertain*. A pair is
-   accepted only when Laya answers **same**, the probability clears
-   `accept_threshold`, and the answer clears `confidence_floor`. Pairs that are
-   plausible but not confident enough land in `needs_review.csv`.
+2. **Deterministic pass**: if every token of the source name appears in a target
+   entry (or vice versa), it is a match. This reliably resolves reversed names,
+   extra parent/sibling names, extra or omitted surnames and middle names without
+   the model — and needs at least two tokens on each side, so a lone common first
+   name cannot match.
+3. **Block**: for each remaining source name, RapidFuzz keeps only the top-K most
+   similar target entries, so we never run the model on the full Cartesian
+   product.
+4. **Decide**: each surviving pair is sent to Laya as a three-way `choice`
+   question — does this target entry refer to this source person? (same /
+   different / uncertain). The entry may hold a parent next to a child, siblings,
+   extra words, a nickname or a spelling variation. A pair is accepted only when
+   Laya answers **same**, the probability clears `accept_threshold`, and the
+   answer clears `confidence_floor`. Plausible-but-uncertain pairs land in
+   `needs_review.csv` instead of being reported as matches.
 
 The model is downloaded once to the Hugging Face cache
 (`~/.cache/huggingface`) and reused afterwards. Everything after that is offline.
@@ -78,7 +86,10 @@ Useful flags:
 | `--exhaustive` | score every pair, for small lists (slower, most accurate) |
 | `--strip-org-suffixes` | ignore `Ltd`, `Inc`, `Corporation`… |
 | `--no-model` | fuzzy-only, no model download |
+| `--no-subset` | disable the deterministic token-containment pass |
 | `--multilingual` | use the multilingual checkpoint for non-Latin scripts |
+| `--model` | Laya checkpoint id or local path (default `jeremierostan/laya-pairmatch`) |
+| `--preset` | input schema: `auto` (default), `base` or `pairmatch` |
 | `--device` | `mps`, `cuda` or `cpu` (default: auto-detect) |
 | `--prefetch` | download the model, then exit (no CSV needed) |
 | `--offline` | never touch the network; fail if the model is not cached |
@@ -119,6 +130,42 @@ uv run comparelists-web --offline  # same for the web UI
 `--offline` sets `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1` before anything is
 imported, so the process fails loudly instead of silently reaching the network.
 The web UI also disables Gradio analytics.
+
+## Choosing a model
+
+The default is
+[`jeremierostan/laya-pairmatch`](https://huggingface.co/jeremierostan/laya-pairmatch),
+a fine-tune of `convaiinnovations/laya-multilingual` trained to match parent
+payment comments to roster students (siblings, shared surnames, nicknames,
+typos, truncation, amounts, annotations). Its own held-out test set scores
+**0.9933 accuracy**, and it reaches the same 0.9933 end-to-end through this app's
+pipeline (per-row on that test set).
+
+Any Laya-compatible checkpoint can be used with `--model` (CLI) or the **Model
+checkpoint** field (web UI). The input schema is auto-detected, or set explicitly
+with `--preset base|pairmatch`.
+
+```bash
+uv run comparelists source.csv target.csv \
+  --source-col full_name --target-col comment --offline
+# use the stock checkpoint instead:
+uv run comparelists source.csv target.csv \
+  --source-col full_name --target-col attendee \
+  --model convaiinnovations/laya --offline
+```
+
+On the deliberately out-of-distribution labelled set in `evaluation/` (bare name
+pairs, no parent comment), the checkpoints trade off as follows:
+
+| Checkpoint | recall | precision | misses | false positive |
+| --- | --- | --- | --- | --- |
+| `jeremierostan/laya-pairmatch` (default) | 0.90 | 0.95 | reversed nicknames | `Smith` vs `Roberta Smith` |
+| `convaiinnovations/laya` (base) | 1.00 | 0.95 | none | shared-surname trap |
+
+The base checkpoint has marginally better recall on *bare* name pairs; pairmatch
+is far stronger on the real payment-comment distribution. **Test on your real
+data** — `evaluation/eval_matching.py [model_id]` measures whichever is
+configured.
 
 ---
 
@@ -191,21 +238,35 @@ match.
 ## Tuning matching quality
 
 - **False positives?** Raise `--accept-threshold` and/or `--confidence-floor`.
-- **Missing semantic matches** (nicknames, very different spellings)? Raise
-  `--max-candidates` and use `--exhaustive` on small lists; lower
-  `--auto-accept-ratio` so more pairs reach the model.
+  The defaults (`0.5` / `0.4`) accept only confident model matches; anything
+  plausible but uncertain goes to `needs_review.csv` rather than being reported
+  as a match.
+- **Missing semantic matches** (nicknames, unusual spellings that the
+  deterministic pass cannot catch)? Raise `--max-candidates` and use
+  `--exhaustive` on small lists.
 - **Non-Latin scripts?** Add `--multilingual`.
-- Always check `needs_review.csv` for borderline cases.
+- Always check `needs_review.csv` for borderline cases, and `all_pairs.csv` to
+  audit any decision.
 
-Real examples from `examples/`:
+## Reliability
 
-| Source | Second list | Result |
-| --- | --- | --- |
-| `Katherine Johnson` | `Johnson, Katherine` | exact |
-| `Mohammed Al-Rashid` | `Muhammad Al Rashid` | Laya 0.95 |
-| `Robert Smith` | `Bob Smith` | Laya 0.86 |
-| `Acme Corporation` | `Acme Corp` | Laya 0.86 |
-| `Jón Þórsson` | `Jon Thorsson` | exact (transliteration) |
+There is a labelled evaluation set and a harness you can run after any change to
+the model, wording or thresholds:
+
+```bash
+uv run python evaluation/eval_matching.py [model_id]
+```
+
+On the out-of-distribution labelled set (bare name pairs, no parent comment),
+the default `pairmatch` checkpoint scores **recall 0.900, precision 0.947**.
+That set is intentionally harsher than real data: it has no parent comment, so
+nickname and transliteration cases are hard. On the model's own payment-comment
+distribution it scores **0.9933 accuracy end-to-end**, with the only miss a
+borderline nickname.
+
+No automatic system is perfect. Always sanity-check `needs_review.csv`, and audit
+`all_pairs.csv` for decisions that share a surname but differ in the given name —
+that is the hardest class for any of the checkpoints.
 
 ## Privacy
 
@@ -231,6 +292,9 @@ src/comparelists/
   io.py             CSV read/write
   cli.py            `comparelists` command
   webapp.py         `comparelists-web` Gradio UI
+evaluation/
+  labeled_pairs.csv labelled name pairs with expected verdicts
+  eval_matching.py  precision/recall harness (real model)
 ```
 
 ## Notes and limits

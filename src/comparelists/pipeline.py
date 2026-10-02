@@ -35,13 +35,14 @@ class MatchConfig:
     max_candidates: int = 10
     candidate_floor: float = 0.0
     accept_threshold: float = 0.5
-    confidence_floor: float = 0.25
+    confidence_floor: float = 0.4
     review_threshold: float = 0.4
     auto_accept_ratio: float = 97.0
     use_model: bool = True
     exhaustive: bool = False
     strip_org_suffixes: bool = False
     model_weight: float = 0.5
+    subset_match: bool = True
 
 
 @dataclass
@@ -120,6 +121,26 @@ class MatchReport:
         }
 
 
+def _contained_targets(source_norm: str, target_norms: list[str]) -> list[int]:
+    """Targets that contain the source name's tokens (or vice versa).
+
+    Handles reversed order, extra parent/sibling names, extra or omitted
+    surnames and middle names deterministically, without the model. Requires at
+    least two tokens on both sides so a lone common first name cannot match.
+    """
+    source_tokens = set(source_norm.split())
+    if len(source_tokens) < 2:
+        return []
+    hits: list[int] = []
+    for idx, target_norm in enumerate(target_norms):
+        target_tokens = set(target_norm.split())
+        if len(target_tokens) < 2:
+            continue
+        if source_tokens <= target_tokens or target_tokens <= source_tokens:
+            hits.append(idx)
+    return hits
+
+
 def match_lists(
     source_names: list[str],
     target_names: list[str],
@@ -151,26 +172,31 @@ def match_lists(
         if progress:
             progress(i, total, src_name)
 
-        exact = target_by_sig.get(sig)
-        if exact:
-            for j in exact:
+        exact_hits = set(target_by_sig.get(sig) or ())
+        subset_hits = (
+            set(_contained_targets(source_norm[i], target_norm)) if cfg.subset_match else set()
+        )
+        deterministic = sorted(exact_hits | subset_hits)
+        if deterministic:
+            for j in deterministic:
+                is_exact = j in exact_hits
                 report.pairs.append(
                     PairResult(
                         source=src_name,
                         source_row=i,
                         target=target_names[j],
                         target_row=j,
-                        method="exact",
-                        fuzzy=100.0,
-                        strict=100.0,
-                        same_prob=1.0,
-                        confidence=1.0,
-                        choice="same",
+                        method="exact" if is_exact else "subset",
+                        fuzzy=float(fuzz.WRatio(source_norm[i], target_norm[j])),
+                        strict=float(fuzz.ratio(sig, target_sig[j])),
+                        same_prob=1.0 if is_exact else None,
+                        confidence=1.0 if is_exact else None,
+                        choice="same" if is_exact else None,
                         decision=True,
-                        combined=1.0,
+                        combined=1.0 if is_exact else 0.99,
                     )
                 )
-            report.best_by_source[i] = report.pairs[-1]
+            report.best_by_source[i] = max(report.pairs[-len(deterministic):], key=lambda p: p.combined)
             continue
 
         candidates = _candidates(

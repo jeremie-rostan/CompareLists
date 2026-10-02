@@ -33,13 +33,14 @@ from .pipeline import MatchConfig, match_lists
 _SCORERS: dict[tuple, object] = {}
 
 
-def _get_scorer(multilingual: bool, device: str | None):
+def _get_scorer(multilingual: bool, device: str | None, model_id: str):
     device = None if device in (None, "auto") else device
-    key = (multilingual, device)
+    model_id = (model_id or "convaiinnovations/laya").strip()
+    key = (multilingual, device, model_id)
     if key not in _SCORERS:
         from .laya_matcher import LayaNameScorer
 
-        _SCORERS[key] = LayaNameScorer(multilingual=multilingual, device=device)
+        _SCORERS[key] = LayaNameScorer(multilingual=multilingual, device=device, model_id=model_id)
     return _SCORERS[key]
 
 
@@ -72,8 +73,10 @@ def run_comparison(
     target_file,
     target_col,
     use_model,
+    model_id,
     multilingual,
     strip_org,
+    use_subset,
     accept_threshold,
     confidence_floor,
     review_threshold,
@@ -96,10 +99,12 @@ def run_comparison(
     scorer = None
     device_used = "fuzzy-only"
     if use_model:
-        scorer = _get_scorer(multilingual, device)
+        scorer = _get_scorer(multilingual, device, model_id)
         device_used = scorer.device
         progress(0.0, desc="Loading Laya (first run downloads the model)")
         scorer.ensure_loaded()
+        if abs(confidence_floor - 0.4) < 1e-9:
+            confidence_floor = scorer.config["default_confidence_floor"]
 
     config = MatchConfig(
         max_candidates=int(max_candidates),
@@ -110,6 +115,7 @@ def run_comparison(
         use_model=use_model,
         exhaustive=exhaustive,
         strip_org_suffixes=strip_org,
+        subset_match=use_subset,
     )
 
     def on_progress(current, total, name):
@@ -171,10 +177,22 @@ def build_ui() -> gr.Blocks:
                 target_col = gr.Dropdown(label="Name column (second list)", choices=[], interactive=True)
 
         with gr.Accordion("Matching options", open=False):
+            model_id = gr.Textbox(
+                value="jeremierostan/laya-pairmatch",
+                label="Model checkpoint",
+                info=(
+                    "Hugging Face id or local path. Default is the fine-tuned student "
+                    "matcher; use convaiinnovations/laya for the stock base checkpoint."
+                ),
+            )
             with gr.Row():
                 use_model = gr.Checkbox(value=True, label="Use Laya (uncheck for fast fuzzy-only)")
                 multilingual = gr.Checkbox(value=False, label="Multilingual checkpoint")
                 strip_org = gr.Checkbox(value=False, label="Ignore company suffixes (Ltd, Inc...)")
+                use_subset = gr.Checkbox(
+                    value=True,
+                    label="Deterministic token matching (reversed names, extra/parent names)",
+                )
                 exhaustive = gr.Checkbox(value=False, label="Score every pair (slow, small lists only)")
             with gr.Row():
                 accept_threshold = gr.Slider(
@@ -182,7 +200,7 @@ def build_ui() -> gr.Blocks:
                     label="Accept threshold (Laya same-entity probability)",
                 )
                 confidence_floor = gr.Slider(
-                    0.0, 1.0, value=0.25, step=0.01,
+                    0.0, 1.0, value=0.4, step=0.01,
                     label="Confidence floor (minimum Laya confidence to accept)",
                 )
                 review_threshold = gr.Slider(
@@ -227,7 +245,7 @@ def build_ui() -> gr.Blocks:
             run_comparison,
             inputs=[
                 source_file, source_col, target_file, target_col,
-                use_model, multilingual, strip_org,
+                use_model, model_id, multilingual, strip_org, use_subset,
                 accept_threshold, confidence_floor, review_threshold,
                 auto_accept_ratio, max_candidates, exhaustive, device,
             ],

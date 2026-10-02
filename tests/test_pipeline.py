@@ -110,6 +110,38 @@ def test_outputs_are_alphabetical():
     )
 
 
+def test_subset_matches_reversed_and_noisy_target_without_model():
+    scorer = FakeScorer()
+    report = match_lists(
+        ["Ana García"],
+        ["García Juan, Ana García"],
+        scorer=scorer,
+        config=MatchConfig(),
+    )
+    best = report.best_matches()[0]
+    assert best.method == "subset"
+    assert best.decision
+    assert scorer.calls == 0
+
+
+def test_subset_tolerates_extra_surnames_and_omitted_middle_names():
+    scorer = FakeScorer()
+    for source, target in [
+        ("Ana García", "Ana García Pérez"),
+        ("Ana María García", "García, Ana"),
+        ("Pedro Ramírez", "María González Pedro Ramírez"),
+    ]:
+        report = match_lists([source], [target], scorer=scorer, config=MatchConfig())
+        assert report.best_matches()[0].decision, (source, target)
+    assert scorer.calls == 0
+
+
+def test_single_token_source_is_not_auto_matched_by_subset():
+    scorer = FakeScorer()
+    report = match_lists(["Ana"], ["Ana García"], scorer=scorer, config=MatchConfig())
+    assert all(p.method != "subset" for p in report.pairs)
+
+
 def test_summary_counts():
     scorer = FakeScorer({frozenset(("robert smith", "bob smith")): 0.9})
     report = match_lists(

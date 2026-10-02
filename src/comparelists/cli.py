@@ -40,14 +40,35 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-candidates", type=int, default=10)
     parser.add_argument("--candidate-floor", type=float, default=0.0)
     parser.add_argument("--accept-threshold", type=float, default=0.5)
-    parser.add_argument("--confidence-floor", type=float, default=0.25)
+    parser.add_argument(
+        "--confidence-floor",
+        type=float,
+        default=None,
+        help="minimum model confidence to accept (default: per-checkpoint value)",
+    )
     parser.add_argument("--review-threshold", type=float, default=0.4)
     parser.add_argument("--auto-accept-ratio", type=float, default=97.0)
     parser.add_argument("--model-weight", type=float, default=0.5)
     parser.add_argument("--exhaustive", action="store_true", help="score every pair (slow)")
     parser.add_argument("--no-model", action="store_true", help="fuzzy-only, skip Laya")
+    parser.add_argument(
+        "--no-subset",
+        action="store_true",
+        help="disable deterministic token-containment matching (reversed/extra-name cases)",
+    )
     parser.add_argument("--multilingual", action="store_true", help="use the multilingual checkpoint")
     parser.add_argument("--device", default=None, help="mps, cuda or cpu (auto-detected)")
+    parser.add_argument(
+        "--model",
+        default="jeremierostan/laya-pairmatch",
+        help="Laya checkpoint id or local path (default: the fine-tuned student matcher)",
+    )
+    parser.add_argument(
+        "--preset",
+        choices=["auto", "base", "pairmatch"],
+        default="auto",
+        help="input schema for the checkpoint; auto-detected from --model by default",
+    )
     parser.add_argument(
         "--prefetch",
         action="store_true",
@@ -67,8 +88,13 @@ def build_parser() -> argparse.ArgumentParser:
 def _prefetch(args) -> int:
     from .laya_matcher import LayaNameScorer
 
-    scorer = LayaNameScorer(multilingual=args.multilingual, device=args.device)
-    print(f"downloading Laya on {scorer.device}...")
+    scorer = LayaNameScorer(
+        multilingual=args.multilingual,
+        device=args.device,
+        model_id=args.model,
+        preset=None if args.preset == "auto" else args.preset,
+    )
+    print(f"downloading Laya ({scorer.model_id}) on {scorer.device}...")
     started = time.time()
     scorer.ensure_loaded()
     print(f"model cached in {time.time() - started:.1f}s")
@@ -107,23 +133,33 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_model:
         from .laya_matcher import LayaNameScorer
 
-        scorer = LayaNameScorer(multilingual=args.multilingual, device=args.device)
+        scorer = LayaNameScorer(
+            multilingual=args.multilingual,
+            device=args.device,
+            model_id=args.model,
+            preset=None if args.preset == "auto" else args.preset,
+        )
         print(f"loading Laya on {scorer.device} (first run downloads the model)...")
         started = time.time()
         scorer.ensure_loaded()
         print(f"model ready in {time.time() - started:.1f}s")
 
+    confidence_floor = args.confidence_floor
+    if confidence_floor is None:
+        confidence_floor = scorer.config["default_confidence_floor"] if scorer else 0.0
+
     config = MatchConfig(
         max_candidates=args.max_candidates,
         candidate_floor=args.candidate_floor,
         accept_threshold=args.accept_threshold,
-        confidence_floor=args.confidence_floor,
+        confidence_floor=confidence_floor,
         review_threshold=args.review_threshold,
         auto_accept_ratio=args.auto_accept_ratio,
         use_model=not args.no_model,
         exhaustive=args.exhaustive,
         strip_org_suffixes=args.strip_org_suffixes,
         model_weight=args.model_weight,
+        subset_match=not args.no_subset,
     )
 
     started = time.time()
