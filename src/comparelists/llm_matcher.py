@@ -29,6 +29,35 @@ _JSON_INSTRUCTION = (
     "with exactly one entry per candidate, in the same order."
 )
 
+# Enforced via response_format=json_schema so the model cannot emit prose.
+RESULT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "match": {"type": "boolean"},
+                    "confidence": {"type": "number"},
+                },
+                "required": ["index", "match", "confidence"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["results"],
+    "additionalProperties": False,
+}
+
+
+class _HTTPError(Exception):
+    def __init__(self, code: int, detail: str):
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
 SYSTEM_PROMPT = (
     "You are a precise record-matching assistant for a school. You are given one "
     "roster student and several payment-comment candidates. A payment comment is "
@@ -143,15 +172,16 @@ class LMStudioScorer:
         timeout: float = 180.0,
         temperature: float = 0.0,
         api_key: str = "lm-studio",
-        json_mode: bool = False,
-        max_tokens: int = 512,
+        structured: bool = True,
+        max_tokens: int = 1024,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
         self.temperature = temperature
         self.api_key = api_key
-        self.json_mode = json_mode
+        self.structured = structured
+        self._structured_ok = structured
         self.max_tokens = max_tokens
         self.device = "lmstudio"
         self.preset = "llm"
@@ -188,19 +218,7 @@ class LMStudioScorer:
     def score(self, name_a: str, name_b: str) -> dict:
         return self.score_many(name_a, [name_b])[0]
 
-    def score_many(self, source: str, candidates: list[str]) -> list[dict]:
-        if not candidates:
-            return []
-        body = {
-            "model": self.model,
-            "messages": build_messages(source, candidates),
-            "temperature": self.temperature,
-            "stream": False,
-        }
-        if self.json_mode:
-            body["response_format"] = {"type": "json_object"}
-        if self.max_tokens and self.max_tokens > 0:
-            body["max_tokens"] = self.max_tokens
+    def _post(self, body: dict) -> dict:
         data = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
@@ -213,11 +231,56 @@ class LMStudioScorer:
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")
+            raise _HTTPError(exc.code, detail) from exc
+
+    def score_many(self, source: str, candidates: list[str]) -> list[dict]:
+        if not candidates:
+            return []
+        body: dict = {
+            "model": self.model,
+            "messages": build_messages(source, candidates),
+            "temperature": self.temperature,
+            "stream": False,
+        }
+        if self.max_tokens and self.max_tokens > 0:
+            body["max_tokens"] = self.max_tokens
+        if self._structured_ok:
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "matches", "strict": True, "schema": RESULT_SCHEMA},
+            }
+
+        try:
+            payload = self._post(body)
+        except _HTTPError as exc:
+            if self._structured_ok and exc.code == 400:
+                # Server/model doesn't support json_schema; fall back to plain JSON.
+                self._structured_ok = False
+                body.pop("response_format", None)
+                try:
+                    payload = self._post(body)
+                except _HTTPError as retry_exc:
+                    raise RuntimeError(
+                        f"LM Studio returned {retry_exc.code} for model {self.model!r}: "
+                        f"{retry_exc.detail[:300]}"
+                    ) from retry_exc
+            else:
+                raise RuntimeError(
+                    f"LM Studio returned {exc.code} for model {self.model!r}: {exc.detail[:300]}"
+                ) from exc
+
+        choice = payload["choices"][0]
+        message = choice["message"]
+        content = (message.get("content") or "").strip()
+        if not content:
+            # Reasoning models may leave content empty; the JSON can be in the trace.
+            content = (message.get("reasoning_content") or "").strip()
+        if not content:
             raise RuntimeError(
-                f"LM Studio returned {exc.code} for model {self.model!r}: {detail[:300]}"
-            ) from exc
-        content = payload["choices"][0]["message"]["content"]
+                f"LM Studio returned no JSON (finish_reason={choice.get('finish_reason')}); "
+                "try a larger --max-tokens or a non-reasoning model."
+            )
         return parse_results(content, len(candidates))

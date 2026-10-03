@@ -1,5 +1,6 @@
 import io
 import json
+import urllib.error
 from unittest import mock
 
 from comparelists.llm_matcher import (
@@ -66,4 +67,37 @@ def test_score_many_posts_and_parses():
     with mock.patch("urllib.request.urlopen", return_value=_Resp()) as patched:
         results = scorer.score_many("Garcia, Ana", ["PARENT -Ana Garcia ($16)"])
     assert results[0]["same_prob"] == 0.85
-    assert patched.called
+    sent = json.loads(patched.call_args[0][0].data.decode("utf-8"))
+    assert sent["response_format"]["type"] == "json_schema"
+
+
+def test_score_many_falls_back_when_schema_rejected():
+    payload = {
+        "choices": [
+            {"message": {"content": '{"results":[{"index":0,"match":true,"confidence":0.8}]}'}}
+        ]
+    }
+
+    class _Resp:
+        def __init__(self, body):
+            self._body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return self._body
+
+    bad = urllib.error.HTTPError(
+        "http://localhost:1234/v1/chat/completions", 400, "Bad Request", {}, io.BytesIO(b"{}")
+    )
+    good = _Resp(json.dumps(payload).encode("utf-8"))
+    scorer = LMStudioScorer(model="test-model")
+    with mock.patch("urllib.request.urlopen", side_effect=[bad, good]) as patched:
+        results = scorer.score_many("Garcia, Ana", ["PARENT -Ana Garcia ($16)"])
+    assert results[0]["same_prob"] == 0.8
+    assert patched.call_count == 2
+    assert scorer._structured_ok is False
