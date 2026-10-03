@@ -64,10 +64,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--multilingual", action="store_true", help="use the multilingual checkpoint")
     parser.add_argument("--device", default=None, help="mps, cuda or cpu (auto-detected)")
     parser.add_argument(
-        "--model",
-        default="jeremierostan/laya-pairmatch",
-        help="Laya checkpoint id or local path (default: the fine-tuned student matcher)",
+        "--engine",
+        choices=["laya", "lmstudio"],
+        default="laya",
+        help="laya (local decision model) or lmstudio (local LLM server, e.g. Qwen3.5-9B)",
     )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Laya checkpoint id/path, or LLM model id for --engine lmstudio",
+    )
+    parser.add_argument(
+        "--base-url",
+        default="http://localhost:1234/v1",
+        help="OpenAI-compatible base URL for --engine lmstudio",
+    )
+    parser.add_argument("--request-timeout", type=float, default=180.0, help="LLM request timeout (s)")
+    parser.add_argument("--max-tokens", type=int, default=512, help="LLM max output tokens")
     parser.add_argument(
         "--preset",
         choices=["auto", "base", "pairmatch"],
@@ -90,15 +103,33 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _prefetch(args) -> int:
+def _make_scorer(args):
+    if args.engine == "lmstudio":
+        from .llm_matcher import DEFAULT_MODEL, LMStudioScorer
+
+        return LMStudioScorer(
+            base_url=args.base_url,
+            model=args.model or DEFAULT_MODEL,
+            timeout=args.request_timeout,
+            max_tokens=args.max_tokens,
+        )
     from .laya_matcher import LayaNameScorer
 
-    scorer = LayaNameScorer(
+    return LayaNameScorer(
         multilingual=args.multilingual,
         device=args.device,
-        model_id=args.model,
+        model_id=args.model or "jeremierostan/laya-pairmatch",
         preset=None if args.preset == "auto" else args.preset,
     )
+
+
+def _prefetch(args) -> int:
+    scorer = _make_scorer(args)
+    if args.engine == "lmstudio":
+        scorer.ensure_loaded()
+        print(f"LM Studio reachable at {args.base_url}; model {scorer.model} is loaded")
+        return 0
+
     print(f"downloading Laya ({scorer.model_id}) on {scorer.device}...")
     started = time.time()
     scorer.ensure_loaded()
@@ -136,15 +167,11 @@ def main(argv: list[str] | None = None) -> int:
 
     scorer = None
     if not args.no_model:
-        from .laya_matcher import LayaNameScorer
-
-        scorer = LayaNameScorer(
-            multilingual=args.multilingual,
-            device=args.device,
-            model_id=args.model,
-            preset=None if args.preset == "auto" else args.preset,
-        )
-        print(f"loading Laya on {scorer.device} (first run downloads the model)...")
+        scorer = _make_scorer(args)
+        if args.engine == "lmstudio":
+            print(f"checking LM Studio at {args.base_url} for model {scorer.model}...")
+        else:
+            print(f"loading Laya on {scorer.device} (first run downloads the model)...")
         started = time.time()
         scorer.ensure_loaded()
         print(f"model ready in {time.time() - started:.1f}s")

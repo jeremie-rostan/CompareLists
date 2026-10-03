@@ -30,7 +30,10 @@ queue.
    entry (or vice versa), it is a match. This reliably resolves reversed names,
    extra parent/sibling names, extra or omitted surnames and middle names without
    the model — and needs at least two tokens on each side, so a lone common first
-   name cannot match.
+   name cannot match. A second rule handles partial references: if the comment's
+   child segment contains the student's **given name and at least one surname**
+   (e.g. roster `Larrinaga Carles, Olivia` vs comment `... -Olivia Larrinaga`),
+   it matches without the model.
 3. **Block**: for each remaining source name, RapidFuzz keeps only the top-K most
    similar target entries, so we never run the model on the full Cartesian
    product.
@@ -168,6 +171,38 @@ The base checkpoint has marginally better recall on *bare* name pairs; pairmatch
 is far stronger on the real payment-comment distribution. **Test on your real
 data** — `evaluation/eval_matching.py [model_id]` measures whichever is
 configured.
+
+## Local LLM engine (LM Studio)
+
+Instead of Laya you can have a local instruction model answer the question
+directly — "does this comment refer to this student?" — with the whole comment
+as input. Names still never leave the machine.
+
+1. In **LM Studio**, load an instruction model and start the local server
+   (default `http://localhost:1234/v1`). A good fit for 16 GB is
+   **Qwen3.5-9B** at `Q4_K_M`; set **GPU offload to max** or inference will be
+   very slow (CPU-only can be 20–40 s per call instead of ~1 s).
+2. Run with the `lmstudio` engine:
+
+```bash
+uv run comparelists source.csv target.csv \
+  --source-col full_name --target-col comment \
+  --engine lmstudio --model qwen3.5-9b
+```
+
+The model name must match the id LM Studio reports (check `--prefetch`, which
+lists what is loaded). The same engine is selectable in the web UI (Engine
+dropdown + base URL).
+
+How it works: for each source name the app sends the student plus that student's
+top candidate comments in **one** request and expects a JSON verdict per
+candidate, so it makes about one call per source instead of one per pair. The
+deterministic passes still run first, so easy matches never reach the LLM. Test
+it without running full CSVs:
+
+```bash
+uv run comparelists --engine lmstudio --prefetch
+```
 
 ---
 

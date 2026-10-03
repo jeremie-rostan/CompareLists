@@ -25,7 +25,7 @@ from typing import Callable, Iterable, Optional
 
 from rapidfuzz import fuzz, process
 
-from .normalize import normalize, signature
+from .normalize import canonicalize_comment, name_parts, normalize, signature
 
 ProgressFn = Callable[[int, int, str], None]
 
@@ -43,6 +43,7 @@ class MatchConfig:
     strip_org_suffixes: bool = False
     model_weight: float = 0.5
     subset_match: bool = True
+    partial_match: bool = True
 
 
 @dataclass
@@ -180,6 +181,29 @@ def _contained_targets(source_norm: str, target_norms: list[str]) -> list[int]:
     return hits
 
 
+def _partial_targets(source_name: str, target_names: list[str]) -> list[int]:
+    """Targets whose child segment names a subset of the source student.
+
+    Handles comments that give the given name plus only *some* surnames, e.g.
+    roster ``"Larrinaga Carles, Olivia"`` vs comment ``"... -Olivia Larrinaga"``.
+    Requires the given name and at least one surname to be present, so siblings
+    (different given name) and different families do not match.
+    """
+    parts = name_parts(source_name)
+    if parts is None:
+        return []
+    surnames, given = parts
+    hits: list[int] = []
+    for idx, cell in enumerate(target_names):
+        comment = canonicalize_comment(cell)
+        if " -" not in comment:
+            continue
+        child_tokens = set(normalize(comment.split(" -")[-1]).split())
+        if given <= child_tokens and (surnames & child_tokens):
+            hits.append(idx)
+    return hits
+
+
 def match_lists(
     source_names: list[str],
     target_names: list[str],
@@ -215,9 +239,20 @@ def match_lists(
         subset_hits = (
             set(_contained_targets(source_norm[i], target_norm)) if cfg.subset_match else set()
         )
-        deterministic = sorted(exact_hits | subset_hits)
+        partial_hits = (
+            set(_partial_targets(src_name, target_names)) - exact_hits - subset_hits
+            if cfg.partial_match
+            else set()
+        )
+        deterministic = sorted(exact_hits | subset_hits | partial_hits)
         if deterministic:
             for j in deterministic:
+                if j in exact_hits:
+                    method, combined = "exact", 1.0
+                elif j in subset_hits:
+                    method, combined = "subset", 0.99
+                else:
+                    method, combined = "partial-name", 0.95
                 is_exact = j in exact_hits
                 report.pairs.append(
                     PairResult(
@@ -225,14 +260,14 @@ def match_lists(
                         source_row=i,
                         target=target_names[j],
                         target_row=j,
-                        method="exact" if is_exact else "subset",
+                        method=method,
                         fuzzy=float(fuzz.WRatio(source_norm[i], target_norm[j])),
                         strict=float(fuzz.ratio(sig, target_sig[j])),
                         same_prob=1.0 if is_exact else None,
                         confidence=1.0 if is_exact else None,
                         choice="same" if is_exact else None,
                         decision=True,
-                        combined=1.0 if is_exact else 0.99,
+                        combined=combined,
                     )
                 )
             report.best_by_source[i] = max(report.pairs[-len(deterministic):], key=lambda p: p.combined)
@@ -242,9 +277,14 @@ def match_lists(
             source_norm[i], sig, unique_target_sigs, target_by_sig, target_norm, target_sig, cfg
         )
 
+        model_results = _batch_model_results(scorer, cfg, src_name, target_names, candidates)
+
         best: Optional[PairResult] = None
-        for j, rank, strict in candidates:
-            pair = _evaluate_pair(src_name, i, target_names[j], j, rank, strict, scorer, cfg)
+        for k, (j, rank, strict) in enumerate(candidates):
+            model_result = model_results[k] if model_results is not None else None
+            pair = _evaluate_pair(
+                src_name, i, target_names[j], j, rank, strict, scorer, cfg, model_result
+            )
             report.pairs.append(pair)
             if pair.decision and (best is None or pair.combined > best.combined):
                 best = pair
@@ -301,6 +341,18 @@ def _candidates(
     return [(idx, rank, fuzz.ratio(source_sig, target_sig[idx])) for idx, rank in deduped]
 
 
+def _batch_model_results(scorer, cfg, source, target_names, candidates):
+    """One model call per source when the scorer supports it (e.g. LLM engines)."""
+    if not cfg.use_model or scorer is None or not candidates:
+        return None
+    if not hasattr(scorer, "score_many"):
+        return None
+    try:
+        return scorer.score_many(source, [target_names[j] for j, _, _ in candidates])
+    except Exception:
+        return None
+
+
 def _evaluate_pair(
     source: str,
     source_row: int,
@@ -310,6 +362,7 @@ def _evaluate_pair(
     strict: float,
     scorer,
     cfg: MatchConfig,
+    model_result: Optional[dict] = None,
 ) -> PairResult:
     if strict >= cfg.auto_accept_ratio:
         return PairResult(
@@ -332,11 +385,17 @@ def _evaluate_pair(
     choice: Optional[str] = None
     combined = fuzzy / 100.0
 
-    if cfg.use_model and scorer is not None:
+    if model_result is not None:
+        same_prob = model_result.get("same_prob")
+        confidence = model_result.get("confidence")
+        choice = model_result.get("choice")
+    elif cfg.use_model and scorer is not None:
         result = scorer.score(source, target)
         same_prob = result["same_prob"]
         confidence = result["confidence"]
         choice = result["choice"]
+
+    if same_prob is not None:
         combined = (1 - cfg.model_weight) * (fuzzy / 100.0) + cfg.model_weight * same_prob
 
     if same_prob is None:
@@ -351,7 +410,7 @@ def _evaluate_pair(
         source_row=source_row,
         target=target,
         target_row=target_row,
-        method="laya" if same_prob is not None else "fuzzy",
+        method="fuzzy" if same_prob is None else ("llm" if model_result is not None else "laya"),
         fuzzy=fuzzy,
         strict=strict,
         same_prob=same_prob,

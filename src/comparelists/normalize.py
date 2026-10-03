@@ -66,3 +66,38 @@ def signature(text: str, *, strip_org_suffixes: bool = False) -> str:
     ever invoking the model.
     """
     return " ".join(sorted(tokens(text, strip_org_suffixes=strip_org_suffixes)))
+
+
+_COMMENT_DASH_BEFORE = re.compile(r"\s+-\s*")
+_COMMENT_DASH_AFTER = re.compile(r"-\s+")
+
+
+def canonicalize_comment(text: str) -> str:
+    """Normalise a payment comment to the shape ``PARENT -Child ($amount)``.
+
+    Training comments use a space before the dash, none after, and always an
+    amount; models are sensitive to those details. This folds unicode dashes,
+    normalises separators, and appends a neutral amount when none is present.
+    Hyphens inside names (``Wei-Lun``) are left untouched.
+    """
+    value = str(text)
+    value = value.replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-")
+    value = _COMMENT_DASH_BEFORE.sub(" -", value)
+    value = _COMMENT_DASH_AFTER.sub(" -", value)
+    value = _WS_RE.sub(" ", value).strip()
+    if value and not re.search(r"\d", value):
+        value = f"{value} ($0)"
+    return value
+
+
+def name_parts(text: str) -> tuple[set[str], set[str]] | None:
+    """Split ``"Surnames, Given"`` into normalised token sets, or ``None``."""
+    if "," not in text:
+        return None
+    surnames, given = text.rsplit(",", 1)
+    surname_tokens = set(normalize(surnames).split())
+    given_tokens = set(normalize(given).split())
+    if not surname_tokens or not given_tokens:
+        return None
+    return surname_tokens, given_tokens
+

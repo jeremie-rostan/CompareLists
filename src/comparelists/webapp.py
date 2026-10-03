@@ -33,10 +33,21 @@ from .pipeline import MatchConfig, match_lists
 _SCORERS: dict[tuple, object] = {}
 
 
-def _get_scorer(multilingual: bool, device: str | None, model_id: str):
+def _get_scorer(multilingual: bool, device: str | None, model_id: str, engine: str, base_url: str):
     device = None if device in (None, "auto") else device
-    model_id = (model_id or "convaiinnovations/laya").strip()
-    key = (multilingual, device, model_id)
+    model_id = (model_id or "").strip()
+    if engine == "lmstudio":
+        from .llm_matcher import DEFAULT_MODEL, LMStudioScorer
+
+        if not model_id or model_id.startswith(("jeremierostan/laya", "convaiinnovations/")):
+            model_id = DEFAULT_MODEL
+        key = ("lmstudio", base_url, model_id)
+        if key not in _SCORERS:
+            _SCORERS[key] = LMStudioScorer(base_url=base_url or "http://localhost:1234/v1", model=model_id)
+        return _SCORERS[key]
+
+    model_id = model_id or "jeremierostan/laya-pairmatch"
+    key = ("laya", multilingual, device, model_id)
     if key not in _SCORERS:
         from .laya_matcher import LayaNameScorer
 
@@ -74,6 +85,8 @@ def run_comparison(
     target_col,
     use_model,
     model_id,
+    engine,
+    base_url,
     multilingual,
     strip_org,
     use_subset,
@@ -99,7 +112,7 @@ def run_comparison(
     scorer = None
     device_used = "fuzzy-only"
     if use_model:
-        scorer = _get_scorer(multilingual, device, model_id)
+        scorer = _get_scorer(multilingual, device, model_id, engine, base_url)
         device_used = scorer.device
         progress(0.0, desc="Loading Laya (first run downloads the model)")
         scorer.ensure_loaded()
@@ -177,16 +190,24 @@ def build_ui() -> gr.Blocks:
                 target_col = gr.Dropdown(label="Name column (second list)", choices=[], interactive=True)
 
         with gr.Accordion("Matching options", open=False):
-            model_id = gr.Textbox(
-                value="jeremierostan/laya-pairmatch",
-                label="Model checkpoint",
-                info=(
-                    "Hugging Face id or local path. Default is the fine-tuned student "
-                    "matcher; use convaiinnovations/laya for the stock base checkpoint."
-                ),
-            )
             with gr.Row():
-                use_model = gr.Checkbox(value=True, label="Use Laya (uncheck for fast fuzzy-only)")
+                engine = gr.Dropdown(
+                    choices=["laya", "lmstudio"],
+                    value="laya",
+                    label="Engine",
+                    info="laya (fast decision model) or lmstudio (local LLM server)",
+                )
+                model_id = gr.Textbox(
+                    value="jeremierostan/laya-pairmatch",
+                    label="Model",
+                    info="Laya checkpoint id/path, or LLM model id for the lmstudio engine.",
+                )
+                base_url = gr.Textbox(
+                    value="http://localhost:1234/v1",
+                    label="LM Studio base URL (lmstudio engine)",
+                )
+            with gr.Row():
+                use_model = gr.Checkbox(value=True, label="Use a model (uncheck for fast fuzzy-only)")
                 multilingual = gr.Checkbox(value=False, label="Multilingual checkpoint")
                 strip_org = gr.Checkbox(value=False, label="Ignore company suffixes (Ltd, Inc...)")
                 use_subset = gr.Checkbox(
@@ -245,7 +266,7 @@ def build_ui() -> gr.Blocks:
             run_comparison,
             inputs=[
                 source_file, source_col, target_file, target_col,
-                use_model, model_id, multilingual, strip_org, use_subset,
+                use_model, model_id, engine, base_url, multilingual, strip_org, use_subset,
                 accept_threshold, confidence_floor, review_threshold,
                 auto_accept_ratio, max_candidates, exhaustive, device,
             ],

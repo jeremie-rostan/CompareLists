@@ -162,6 +162,50 @@ def test_unmatched_with_empty_target_has_no_candidate():
     assert rows == [{"source_name": "Solo", "source_row": 0}]
 
 
+class BatchScorer:
+    """Scores all candidates for a source in one call (like the LLM engine)."""
+
+    def __init__(self):
+        self.batch_calls = 0
+
+    def ensure_loaded(self):
+        return self
+
+    def warmup(self):
+        pass
+
+    def score(self, a, b):  # must not be used
+        raise AssertionError("per-pair score() should not be called")
+
+    def score_many(self, source, candidates):
+        self.batch_calls += 1
+        out = []
+        for candidate in candidates:
+            hit = candidate == "Bob Smith"
+            out.append(
+                {
+                    "same_prob": 0.95 if hit else 0.02,
+                    "confidence": 0.95 if hit else 0.02,
+                    "choice": "same" if hit else "different",
+                }
+            )
+        return out
+
+
+def test_batched_scorer_is_used_once_per_source():
+    scorer = BatchScorer()
+    report = match_lists(
+        ["Robert Smith"],
+        ["Bob Smith", "Jane Doe"],
+        scorer=scorer,
+        config=MatchConfig(accept_threshold=0.5, auto_accept_ratio=99.0),
+    )
+    best = report.best_matches()[0]
+    assert best.target == "Bob Smith"
+    assert best.method == "llm"
+    assert scorer.batch_calls == 1
+
+
 def test_summary_counts():
     scorer = FakeScorer({frozenset(("robert smith", "bob smith")): 0.9})
     report = match_lists(

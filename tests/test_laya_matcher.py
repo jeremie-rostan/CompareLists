@@ -1,10 +1,10 @@
 from comparelists.laya_matcher import (
     PRESETS,
     _base_state,
-    _canon_comment,
     _pairmatch_state,
     preset_for,
 )
+from comparelists.normalize import canonicalize_comment
 
 
 def test_preset_is_autodetected_from_model_id():
@@ -30,11 +30,11 @@ def test_pairmatch_state_uses_roster_payment_keys():
 
 
 def test_canon_comment_matches_training_shape():
-    assert _canon_comment("CELINA REVOREDO - Alegre Revoredo") == "CELINA REVOREDO -Alegre Revoredo ($0)"
-    assert _canon_comment("A - B ($16)") == "A -B ($16)"
-    assert _canon_comment("A- B") == "A -B ($0)"
-    assert _canon_comment("PARENT -Child ($10)") == "PARENT -Child ($10)"
+    assert canonicalize_comment("CELINA REVOREDO - Alegre Revoredo") == "CELINA REVOREDO -Alegre Revoredo ($0)"
+    assert canonicalize_comment("A - B ($16)") == "A -B ($16)"
+    assert canonicalize_comment("A- B") == "A -B ($0)"
+    assert canonicalize_comment("PARENT -Child ($10)") == "PARENT -Child ($10)"
 
 
 def test_canon_comment_keeps_hyphens_inside_names():
-    assert _canon_comment("Wei-Lun - Chen Mei") == "Wei-Lun -Chen Mei ($0)"
+    assert canonicalize_comment("Wei-Lun - Chen Mei") == "Wei-Lun -Chen Mei ($0)"
