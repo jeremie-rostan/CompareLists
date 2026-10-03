@@ -93,7 +93,10 @@ Useful flags:
 | `--no-model` | fuzzy-only, no model download |
 | `--no-subset` | disable the deterministic token-containment pass |
 | `--multilingual` | use the multilingual checkpoint for non-Latin scripts |
+| `--engine` | `cascade` (default: Laya then LLM on unmatched), `laya` or `lmstudio` |
 | `--model` | Laya checkpoint id or local path (default `jeremierostan/laya-pairmatch`) |
+| `--llm-model` | LM Studio model id for the lmstudio/cascade stages (default `qwen3.5-9b`) |
+| `--base-url` | OpenAI-compatible base URL (default `http://localhost:1234/v1`) |
 | `--preset` | input schema: `auto` (default), `base` or `pairmatch` |
 | `--device` | `mps`, `cuda` or `cpu` (default: auto-detect) |
 | `--prefetch` | download the model, then exit (no CSV needed) |
@@ -172,35 +175,36 @@ is far stronger on the real payment-comment distribution. **Test on your real
 data** — `evaluation/eval_matching.py [model_id]` measures whichever is
 configured.
 
-## Local LLM engine (LM Studio)
+## Cascade: Laya first, then a local LLM (default)
 
-Instead of Laya you can have a local instruction model answer the question
-directly — "does this comment refer to this student?" — with the whole comment
-as input. Names still never leave the machine.
+The default engine is **cascade**: Laya runs first over every name, and only the
+names it leaves **unmatched** are sent to a local LLM. This keeps Laya's speed
+for the easy majority and uses the LLM's reasoning only where it's needed.
 
 1. In **LM Studio**, load an instruction model and start the local server
    (default `http://localhost:1234/v1`). A good fit for 16 GB is
    **Qwen3.5-9B** at `Q4_K_M`; set **GPU offload to max** or inference will be
    very slow (CPU-only can be 20–40 s per call instead of ~1 s).
-2. Run with the `lmstudio` engine:
+2. Run it (this is the default, so no `--engine` needed):
 
 ```bash
 uv run comparelists source.csv target.csv \
-  --source-col full_name --target-col comment \
-  --engine lmstudio --model qwen3.5-9b
+  --source-col full_name --target-col comment
 ```
 
-The model name must match the id LM Studio reports (check `--prefetch`, which
-lists what is loaded). The same engine is selectable in the web UI (Engine
-dropdown + base URL).
+If LM Studio isn't running, the app **falls back to Laya only** with a warning,
+so it never hard-fails. Force a single engine with `--engine laya` or
+`--engine lmstudio` (LLM only). The model id must match what LM Studio reports
+(check with `--prefetch`, which lists what is loaded). Same options in the web UI
+(Engine dropdown, LLM model, base URL).
 
-How it works: for each source name the app sends the student plus that student's
-top candidate comments in **one** request and expects a JSON verdict per
-candidate, so it makes about one call per source instead of one per pair. The
-deterministic passes still run first, so easy matches never reach the LLM. Test
-it without running full CSVs:
+How the LLM stage works: for each unmatched source name the app sends the student
+plus that student's top candidate comments in **one** request and expects a JSON
+verdict per candidate, so it makes about one call per unmatched name. The
+deterministic passes run in the first stage, so easy matches never reach the LLM.
 
 ```bash
+uv run comparelists --prefetch            # Laya + LM Studio readiness check
 uv run comparelists --engine lmstudio --prefetch
 ```
 

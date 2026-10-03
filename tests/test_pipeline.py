@@ -1,6 +1,6 @@
 """Pipeline tests use a fake scorer so they never download the model."""
 
-from comparelists.pipeline import MatchConfig, match_lists
+from comparelists.pipeline import MatchConfig, match_lists, match_lists_cascade
 
 
 class FakeScorer:
@@ -181,7 +181,7 @@ class BatchScorer:
         self.batch_calls += 1
         out = []
         for candidate in candidates:
-            hit = candidate == "Bob Smith"
+            hit = source == "Robert Smith" and candidate == "Bob Smith"
             out.append(
                 {
                     "same_prob": 0.95 if hit else 0.02,
@@ -204,6 +204,37 @@ def test_batched_scorer_is_used_once_per_source():
     assert best.target == "Bob Smith"
     assert best.method == "llm"
     assert scorer.batch_calls == 1
+
+
+def test_cascade_runs_secondary_only_on_unmatched_names():
+    primary = FakeScorer(default=0.0)
+    secondary = BatchScorer()
+    report = match_lists_cascade(
+        ["Robert Smith", "Nobody Here"],
+        ["Bob Smith", "Jane Doe"],
+        primary,
+        secondary,
+        MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
+        MatchConfig(accept_threshold=0.5, auto_accept_ratio=99.0),
+    )
+    matches = {p.source: p.target for p in report.best_matches()}
+    assert matches["Robert Smith"] == "Bob Smith"
+    assert report.unmatched == [(1, "Nobody Here")]
+
+
+def test_cascade_skips_secondary_when_primary_matches_everything():
+    primary = FakeScorer({frozenset(("robert smith", "bob smith")): 0.9})
+    secondary = BatchScorer()
+    report = match_lists_cascade(
+        ["Robert Smith"],
+        ["Bob Smith"],
+        primary,
+        secondary,
+        MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
+        MatchConfig(),
+    )
+    assert report.best_matches()[0].target == "Bob Smith"
+    assert secondary.batch_calls == 0
 
 
 def test_summary_counts():

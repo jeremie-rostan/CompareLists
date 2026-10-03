@@ -299,6 +299,51 @@ def match_lists(
     return report
 
 
+def match_lists_cascade(
+    source_names: list[str],
+    target_names: list[str],
+    primary,
+    secondary,
+    primary_config: Optional[MatchConfig] = None,
+    secondary_config: Optional[MatchConfig] = None,
+    progress: Optional[ProgressFn] = None,
+    on_secondary_error: Optional[Callable[[str], None]] = None,
+) -> MatchReport:
+    """Run *primary* first, then *secondary* only on the unmatched source names.
+
+    Used to get Laya's speed for the easy majority and an LLM's reasoning for
+    the hard remainder. If the secondary scorer fails (e.g. the local server is
+    down), the primary results are returned unchanged and ``on_secondary_error``
+    is called with the message.
+    """
+    report = match_lists(source_names, target_names, scorer=primary, config=primary_config, progress=progress)
+    if not report.unmatched or secondary is None:
+        return report
+
+    unmatched_names = [name for _, name in report.unmatched]
+    original_rows = [row for row, _ in report.unmatched]
+
+    try:
+        secondary_report = match_lists(
+            unmatched_names, target_names, scorer=secondary, config=secondary_config
+        )
+    except Exception as exc:  # local server down, bad model, etc.
+        if on_secondary_error:
+            on_secondary_error(str(exc))
+        return report
+
+    for pair in secondary_report.pairs:
+        pair.source_row = original_rows[pair.source_row]
+    report.pairs.extend(secondary_report.pairs)
+    for local_row, pair in secondary_report.best_by_source.items():
+        pair.source_row = original_rows[local_row]
+        report.best_by_source[pair.source_row] = pair
+    report.unmatched = [
+        (original_rows[local_row], name) for local_row, name in secondary_report.unmatched
+    ]
+    return report
+
+
 def _candidates(
     source_norm: str,
     source_sig: str,

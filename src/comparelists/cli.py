@@ -13,10 +13,11 @@ if "--offline" in sys.argv:
 
 import argparse
 import time
+from dataclasses import replace
 
 from . import __version__
 from .io import column_values, list_columns, write_results
-from .pipeline import MatchConfig, match_lists
+from .pipeline import MatchConfig, match_lists, match_lists_cascade
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,14 +66,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default=None, help="mps, cuda or cpu (auto-detected)")
     parser.add_argument(
         "--engine",
-        choices=["laya", "lmstudio"],
-        default="laya",
-        help="laya (local decision model) or lmstudio (local LLM server, e.g. Qwen3.5-9B)",
+        choices=["cascade", "laya", "lmstudio"],
+        default="cascade",
+        help="cascade (Laya then LLM on unmatched, default), laya, or lmstudio",
     )
     parser.add_argument(
         "--model",
         default=None,
-        help="Laya checkpoint id/path, or LLM model id for --engine lmstudio",
+        help="Laya checkpoint id/path for the Laya stage",
+    )
+    parser.add_argument(
+        "--llm-model",
+        default=None,
+        help="LM Studio model id for the lmstudio engine / cascade second stage",
     )
     parser.add_argument(
         "--base-url",
@@ -103,16 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _make_scorer(args):
-    if args.engine == "lmstudio":
-        from .llm_matcher import DEFAULT_MODEL, LMStudioScorer
-
-        return LMStudioScorer(
-            base_url=args.base_url,
-            model=args.model or DEFAULT_MODEL,
-            timeout=args.request_timeout,
-            max_tokens=args.max_tokens,
-        )
+def _make_laya_scorer(args):
     from .laya_matcher import LayaNameScorer
 
     return LayaNameScorer(
@@ -123,18 +120,40 @@ def _make_scorer(args):
     )
 
 
-def _prefetch(args) -> int:
-    scorer = _make_scorer(args)
-    if args.engine == "lmstudio":
-        scorer.ensure_loaded()
-        print(f"LM Studio reachable at {args.base_url}; model {scorer.model} is loaded")
-        return 0
+def _make_llm_scorer(args):
+    from .llm_matcher import DEFAULT_MODEL, LMStudioScorer
 
-    print(f"downloading Laya ({scorer.model_id}) on {scorer.device}...")
-    started = time.time()
-    scorer.ensure_loaded()
-    print(f"model cached in {time.time() - started:.1f}s")
-    print("now run with --offline to work without a network connection")
+    return LMStudioScorer(
+        base_url=args.base_url,
+        model=args.llm_model or DEFAULT_MODEL,
+        timeout=args.request_timeout,
+        max_tokens=args.max_tokens,
+    )
+
+
+def _make_scorers(args):
+    """Return (primary, secondary); secondary is set only for the cascade engine."""
+    if args.engine == "laya":
+        return _make_laya_scorer(args), None
+    if args.engine == "lmstudio":
+        return _make_llm_scorer(args), None
+    return _make_laya_scorer(args), _make_llm_scorer(args)
+
+
+def _prefetch(args) -> int:
+    primary, secondary = _make_scorers(args)
+    if args.engine in ("laya", "cascade"):
+        print(f"downloading Laya ({primary.model_id}) on {primary.device}...")
+        started = time.time()
+        primary.ensure_loaded()
+        print(f"model cached in {time.time() - started:.1f}s")
+    if args.engine == "lmstudio":
+        primary.ensure_loaded()
+        print(f"LM Studio reachable at {args.base_url}; model {primary.model} is loaded")
+    if secondary is not None:
+        secondary.ensure_loaded()
+        print(f"LM Studio reachable at {args.base_url}; model {secondary.model} is loaded")
+    print("done")
     return 0
 
 
@@ -165,24 +184,34 @@ def main(argv: list[str] | None = None) -> int:
     print(f"source: {len(source_names):,} names from {args.source!r} [{args.source_col}]")
     print(f"target: {len(target_names):,} names from {args.target!r} [{args.target_col}]")
 
-    scorer = None
+    primary = None
+    secondary = None
     if not args.no_model:
-        scorer = _make_scorer(args)
-        if args.engine == "lmstudio":
-            print(f"checking LM Studio at {args.base_url} for model {scorer.model}...")
+        primary, secondary = _make_scorers(args)
+        if args.engine == "laya":
+            print(f"loading Laya on {primary.device} (first run downloads the model)...")
+        elif args.engine == "lmstudio":
+            print(f"checking LM Studio at {args.base_url} for model {primary.model}...")
         else:
-            print(f"loading Laya on {scorer.device} (first run downloads the model)...")
+            print(f"loading Laya on {primary.device} (first run downloads the model)...")
         started = time.time()
-        scorer.ensure_loaded()
+        primary.ensure_loaded()
         print(f"model ready in {time.time() - started:.1f}s")
+        if secondary is not None:
+            try:
+                secondary.ensure_loaded()
+                print(f"LM Studio ready at {args.base_url} ({secondary.model})")
+            except Exception as exc:
+                print(f"warning: LLM stage unavailable, running Laya only: {exc}", file=sys.stderr)
+                secondary = None
 
     confidence_floor = args.confidence_floor
     if confidence_floor is None:
-        confidence_floor = scorer.config["default_confidence_floor"] if scorer else 0.0
+        confidence_floor = primary.config["default_confidence_floor"] if primary else 0.0
 
     accept_threshold = args.accept_threshold
     if accept_threshold is None:
-        accept_threshold = scorer.config["default_accept_threshold"] if scorer else 0.5
+        accept_threshold = primary.config["default_accept_threshold"] if primary else 0.5
 
     config = MatchConfig(
         max_candidates=args.max_candidates,
@@ -199,7 +228,33 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     started = time.time()
-    report = match_lists(source_names, target_names, scorer=scorer, config=config)
+    if secondary is not None:
+        second_floor = (
+            args.confidence_floor
+            if args.confidence_floor is not None
+            else secondary.config["default_confidence_floor"]
+        )
+        second_accept = (
+            args.accept_threshold
+            if args.accept_threshold is not None
+            else secondary.config["default_accept_threshold"]
+        )
+        second_config = replace(
+            config, accept_threshold=second_accept, confidence_floor=second_floor
+        )
+        report = match_lists_cascade(
+            source_names,
+            target_names,
+            primary,
+            secondary,
+            config,
+            second_config,
+            on_secondary_error=lambda message: print(
+                f"warning: LLM stage skipped: {message}", file=sys.stderr
+            ),
+        )
+    else:
+        report = match_lists(source_names, target_names, scorer=primary, config=config)
 
     os.makedirs(args.output_dir, exist_ok=True)
     pairs_path = os.path.join(args.output_dir, "all_pairs.csv")

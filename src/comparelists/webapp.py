@@ -23,36 +23,51 @@ if "--offline" in sys.argv:
 
 import argparse
 import tempfile
+from dataclasses import replace
 
 import gradio as gr
 import pandas as pd
 
 from .io import column_values, list_columns, write_results
-from .pipeline import MatchConfig, match_lists
+from .pipeline import MatchConfig, match_lists, match_lists_cascade
 
 _SCORERS: dict[tuple, object] = {}
 
 
-def _get_scorer(multilingual: bool, device: str | None, model_id: str, engine: str, base_url: str):
+def _laya_scorer(multilingual: bool, device: str | None, model_id: str):
     device = None if device in (None, "auto") else device
-    model_id = (model_id or "").strip()
-    if engine == "lmstudio":
-        from .llm_matcher import DEFAULT_MODEL, LMStudioScorer
-
-        if not model_id or model_id.startswith(("jeremierostan/laya", "convaiinnovations/")):
-            model_id = DEFAULT_MODEL
-        key = ("lmstudio", base_url, model_id)
-        if key not in _SCORERS:
-            _SCORERS[key] = LMStudioScorer(base_url=base_url or "http://localhost:1234/v1", model=model_id)
-        return _SCORERS[key]
-
-    model_id = model_id or "jeremierostan/laya-pairmatch"
+    model_id = (model_id or "jeremierostan/laya-pairmatch").strip()
     key = ("laya", multilingual, device, model_id)
     if key not in _SCORERS:
         from .laya_matcher import LayaNameScorer
 
         _SCORERS[key] = LayaNameScorer(multilingual=multilingual, device=device, model_id=model_id)
     return _SCORERS[key]
+
+
+def _llm_scorer(base_url: str, llm_model: str):
+    from .llm_matcher import DEFAULT_MODEL, LMStudioScorer
+
+    model = (llm_model or DEFAULT_MODEL).strip()
+    base_url = base_url or "http://localhost:1234/v1"
+    key = ("lmstudio", base_url, model)
+    if key not in _SCORERS:
+        _SCORERS[key] = LMStudioScorer(base_url=base_url, model=model)
+    return _SCORERS[key]
+
+
+def _get_scorers(multilingual, device, model_id, engine, base_url, llm_model):
+    """Return (primary, secondary); secondary is set only for the cascade engine."""
+    if engine == "laya":
+        return _laya_scorer(multilingual, device, model_id), None
+    if engine == "lmstudio":
+        return _llm_scorer(base_url, model_id if _looks_like_llm(model_id) else llm_model), None
+    return _laya_scorer(multilingual, device, model_id), _llm_scorer(base_url, llm_model)
+
+
+def _looks_like_llm(model_id: str) -> bool:
+    model_id = (model_id or "").strip()
+    return bool(model_id) and not model_id.startswith(("jeremierostan/laya", "convaiinnovations/"))
 
 
 def _columns(path):
@@ -62,9 +77,9 @@ def _columns(path):
     return gr.update(choices=columns, value=columns[0] if columns else None)
 
 
-def _summary_markdown(report, elapsed: float, device: str, pairs_path: str) -> str:
+def _summary_markdown(report, elapsed: float, device: str, pairs_path: str, warnings=None) -> str:
     s = report.summary()
-    return (
+    text = (
         f"### Results\n\n"
         f"- Source names: **{s['source_count']:,}**\n"
         f"- Matched: **{s['matched_source_count']:,}** "
@@ -76,6 +91,9 @@ def _summary_markdown(report, elapsed: float, device: str, pairs_path: str) -> s
         f"- Device: `{device}` - time: {elapsed:.1f}s\n\n"
         f"Full report written to `{pairs_path}`."
     )
+    for warning in warnings or []:
+        text += f"\n\n> **Warning:** {warning}"
+    return text
 
 
 def run_comparison(
@@ -86,6 +104,7 @@ def run_comparison(
     use_model,
     model_id,
     engine,
+    llm_model,
     base_url,
     multilingual,
     strip_org,
@@ -109,17 +128,26 @@ def run_comparison(
     if not source_names or not target_names:
         raise gr.Error("One of the selected columns is empty.")
 
-    scorer = None
+    primary = None
+    secondary = None
     device_used = "fuzzy-only"
+    warnings: list[str] = []
     if use_model:
-        scorer = _get_scorer(multilingual, device, model_id, engine, base_url)
-        device_used = scorer.device
-        progress(0.0, desc="Loading Laya (first run downloads the model)")
-        scorer.ensure_loaded()
+        primary, secondary = _get_scorers(multilingual, device, model_id, engine, base_url, llm_model)
+        device_used = primary.device
+        progress(0.0, desc="Loading the first-stage model")
+        primary.ensure_loaded()
+        if secondary is not None:
+            try:
+                secondary.ensure_loaded()
+                device_used = f"{primary.device} + {secondary.device}"
+            except Exception as exc:
+                warnings.append(f"LLM stage unavailable, ran Laya only: {exc}")
+                secondary = None
         if abs(confidence_floor - 0.4) < 1e-9:
-            confidence_floor = scorer.config["default_confidence_floor"]
+            confidence_floor = primary.config["default_confidence_floor"]
         if abs(accept_threshold - 0.5) < 1e-9:
-            accept_threshold = scorer.config["default_accept_threshold"]
+            accept_threshold = primary.config["default_accept_threshold"]
 
     config = MatchConfig(
         max_candidates=int(max_candidates),
@@ -139,7 +167,26 @@ def run_comparison(
     import time
 
     started = time.time()
-    report = match_lists(source_names, target_names, scorer=scorer, config=config, progress=on_progress)
+    if secondary is not None:
+        second_config = replace(
+            config,
+            accept_threshold=secondary.config["default_accept_threshold"],
+            confidence_floor=secondary.config["default_confidence_floor"],
+        )
+        report = match_lists_cascade(
+            source_names,
+            target_names,
+            primary,
+            secondary,
+            config,
+            second_config,
+            progress=on_progress,
+            on_secondary_error=lambda message: warnings.append(f"LLM stage skipped: {message}"),
+        )
+    else:
+        report = match_lists(
+            source_names, target_names, scorer=primary, config=config, progress=on_progress
+        )
     elapsed = time.time() - started
 
     out_dir = tempfile.mkdtemp(prefix="comparelists-")
@@ -159,7 +206,7 @@ def run_comparison(
     write_results(pairs_path, pair_rows)
 
     return (
-        _summary_markdown(report, elapsed, device_used, pairs_path),
+        _summary_markdown(report, elapsed, device_used, pairs_path, warnings),
         pd.DataFrame(best_rows),
         pd.DataFrame(unmatched_rows),
         pd.DataFrame(review_rows),
@@ -192,19 +239,24 @@ def build_ui() -> gr.Blocks:
         with gr.Accordion("Matching options", open=False):
             with gr.Row():
                 engine = gr.Dropdown(
-                    choices=["laya", "lmstudio"],
-                    value="laya",
+                    choices=["cascade", "laya", "lmstudio"],
+                    value="cascade",
                     label="Engine",
-                    info="laya (fast decision model) or lmstudio (local LLM server)",
+                    info="cascade = Laya first, then the LLM on unmatched names (default)",
                 )
                 model_id = gr.Textbox(
                     value="jeremierostan/laya-pairmatch",
-                    label="Model",
-                    info="Laya checkpoint id/path, or LLM model id for the lmstudio engine.",
+                    label="Laya checkpoint",
+                    info="Used by laya and cascade.",
+                )
+                llm_model = gr.Textbox(
+                    value="qwen3.5-9b",
+                    label="LLM model",
+                    info="Used by lmstudio and cascade (must match the id LM Studio shows).",
                 )
                 base_url = gr.Textbox(
                     value="http://localhost:1234/v1",
-                    label="LM Studio base URL (lmstudio engine)",
+                    label="LM Studio base URL",
                 )
             with gr.Row():
                 use_model = gr.Checkbox(value=True, label="Use a model (uncheck for fast fuzzy-only)")
@@ -266,7 +318,8 @@ def build_ui() -> gr.Blocks:
             run_comparison,
             inputs=[
                 source_file, source_col, target_file, target_col,
-                use_model, model_id, engine, base_url, multilingual, strip_org, use_subset,
+                use_model, model_id, engine, llm_model, base_url,
+                multilingual, strip_org, use_subset,
                 accept_threshold, confidence_floor, review_threshold,
                 auto_accept_ratio, max_candidates, exhaustive, device,
             ],
