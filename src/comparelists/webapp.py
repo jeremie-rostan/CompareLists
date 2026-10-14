@@ -79,14 +79,19 @@ def _columns(path):
 
 def _summary_markdown(report, elapsed: float, device: str, pairs_path: str, warnings=None) -> str:
     s = report.summary()
+    target_pct = s["matched_target_count"] / max(s["target_count"], 1)
     text = (
         f"### Results\n\n"
-        f"- Source names: **{s['source_count']:,}**\n"
-        f"- Matched: **{s['matched_source_count']:,}** "
-        f"({s['matched_source_count'] / max(s['source_count'], 1):.1%})\n"
-        f"- Unmatched: **{s['unmatched_source_count']:,}**\n"
+        f"**Targets (receipts)** - every one should get a proposed match:\n"
+        f"- Matched to a source: **{s['matched_target_count']:,} / {s['target_count']:,}** "
+        f"({target_pct:.1%})\n"
+        f"- Unmatched targets: **{s['unmatched_target_count']:,}**\n\n"
+        f"**Sources (students):**\n"
+        f"- Matched: **{s['matched_source_count']:,} / {s['source_count']:,}**\n"
+        f"- Unmatched: **{s['unmatched_source_count']:,}** "
+        f"(a student with no payment yet is expected)\n\n"
         f"- Needs review: **{s['review_count']:,}** borderline pairs\n"
-        f"- Source/target pairs accepted: **{s['matched_pair_count']:,}** "
+        f"- Pairs accepted: **{s['matched_pair_count']:,}** "
         f"(out of {s['pairs_evaluated']:,} evaluated)\n"
         f"- Device: `{device}` - time: {elapsed:.1f}s\n\n"
         f"Full report written to `{pairs_path}`."
@@ -194,25 +199,30 @@ def run_comparison(
     unmatched_path = os.path.join(out_dir, "unmatched.csv")
     review_path = os.path.join(out_dir, "needs_review.csv")
     pairs_path = os.path.join(out_dir, "all_pairs.csv")
+    targets_path = os.path.join(out_dir, "target_matches.csv")
 
     best_rows = [p.as_row() for p in report.best_matches()]
-    unmatched_rows = report.unmatched_with_candidates()
+    target_rows = report.target_rows()
+    unmatched_rows = report.unmatched_target_rows()
     review_rows = [p.as_row() for p in report.review_pairs()]
     pair_rows = [p.as_row() for p in report.all_pairs_sorted()]
 
-    write_results(best_path, best_rows)
+    write_results(targets_path, target_rows)
     write_results(unmatched_path, unmatched_rows)
+    write_results(best_path, best_rows)
     write_results(review_path, review_rows)
     write_results(pairs_path, pair_rows)
 
     return (
         _summary_markdown(report, elapsed, device_used, pairs_path, warnings),
-        pd.DataFrame(best_rows),
+        pd.DataFrame(target_rows),
         pd.DataFrame(unmatched_rows),
+        pd.DataFrame(best_rows),
         pd.DataFrame(review_rows),
         pd.DataFrame(pair_rows),
-        best_path,
+        targets_path,
         unmatched_path,
+        best_path,
         review_path,
         pairs_path,
     )
@@ -295,20 +305,23 @@ def build_ui() -> gr.Blocks:
         summary = gr.Markdown()
 
         with gr.Tabs():
+            with gr.Tab("Targets (proposed source)"):
+                target_table = gr.Dataframe(label="target_matches.csv", wrap=True)
+            with gr.Tab("Unmatched targets"):
+                unmatched_table = gr.Dataframe(label="unmatched.csv", wrap=True)
             with gr.Tab("Best match per source name"):
                 best_table = gr.Dataframe(label="best_matches.csv", wrap=True)
             with gr.Tab("Needs review"):
                 review_table = gr.Dataframe(label="needs_review.csv", wrap=True)
-            with gr.Tab("Unmatched source names"):
-                unmatched_table = gr.Dataframe(label="unmatched.csv", wrap=True)
             with gr.Tab("All evaluated pairs"):
                 pairs_table = gr.Dataframe(label="all_pairs.csv", wrap=True)
 
         gr.Markdown("### Download")
         with gr.Row():
+            targets_file = gr.File(label="target_matches.csv")
+            unmatched_file = gr.File(label="unmatched.csv")
             best_file = gr.File(label="best_matches.csv")
             review_file = gr.File(label="needs_review.csv")
-            unmatched_file = gr.File(label="unmatched.csv")
             pairs_file = gr.File(label="all_pairs.csv")
 
         source_file.change(_columns, inputs=source_file, outputs=source_col)
@@ -324,8 +337,8 @@ def build_ui() -> gr.Blocks:
                 auto_accept_ratio, max_candidates, exhaustive, device,
             ],
             outputs=[
-                summary, best_table, unmatched_table, review_table, pairs_table,
-                best_file, unmatched_file, review_file, pairs_file,
+                summary, target_table, unmatched_table, best_table, review_table, pairs_table,
+                targets_file, unmatched_file, best_file, review_file, pairs_file,
             ],
         )
     return demo

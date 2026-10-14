@@ -237,6 +237,30 @@ def test_cascade_skips_secondary_when_primary_matches_everything():
     assert secondary.batch_calls == 0
 
 
+def test_target_centric_unmatched_and_proposal():
+    scorer = FakeScorer({frozenset(("robert smith", "bob smith")): 0.9})
+    report = match_lists(
+        ["Robert Smith"],
+        ["Bob Smith", "Jane Doe"],
+        scorer=scorer,
+        config=MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
+    )
+    by_entry = {row["target_entry"]: row for row in report.target_rows()}
+    assert by_entry["Bob Smith"]["used"] is True
+    assert by_entry["Bob Smith"]["proposed_source"] == "Robert Smith"
+    assert by_entry["Jane Doe"]["used"] is False
+
+    unmatched = report.unmatched_target_rows()
+    assert [row["target_entry"] for row in unmatched] == ["Jane Doe"]
+    # the proposed candidate for an unmatched target comes from the SOURCE list
+    assert unmatched[0]["proposed_source"] == "Robert Smith"
+
+    summary = report.summary()
+    assert summary["target_count"] == 2
+    assert summary["matched_target_count"] == 1
+    assert summary["unmatched_target_count"] == 1
+
+
 def test_summary_counts():
     scorer = FakeScorer({frozenset(("robert smith", "bob smith")): 0.9})
     report = match_lists(

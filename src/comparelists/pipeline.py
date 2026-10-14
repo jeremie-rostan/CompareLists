@@ -85,6 +85,8 @@ class MatchReport:
     pairs: list[PairResult] = field(default_factory=list)
     best_by_source: dict[int, PairResult] = field(default_factory=dict)
     unmatched: list[tuple[int, str]] = field(default_factory=list)
+    targets: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
 
     @staticmethod
     def _alpha_key(pair: PairResult):
@@ -149,12 +151,107 @@ class MatchReport:
             key=self._alpha_key,
         )
 
+    def _best_source_per_target(self) -> dict[int, PairResult]:
+        best: dict[int, PairResult] = {}
+        for pair in self.pairs:
+            current = best.get(pair.target_row)
+            if current is None or (pair.combined, pair.same_prob or 0.0) > (
+                current.combined,
+                current.same_prob or 0.0,
+            ):
+                best[pair.target_row] = pair
+        return best
+
+    def _fuzzy_proposal(self, entry: str):
+        """Best source for a target that no source ever considered (fuzzy only)."""
+        if not self.sources:
+            return None
+        entry_norm = normalize(entry)
+        best = None
+        for idx, source in enumerate(self.sources):
+            score = float(fuzz.WRatio(normalize(source), entry_norm))
+            if best is None or score > best[2]:
+                best = (source, idx, score)
+        return best
+
+    def target_rows(self) -> list[dict]:
+        """Every target entry with its best source proposal (target-centric)."""
+        best = self._best_source_per_target()
+        accepted_targets = {p.target_row for p in self.pairs if p.decision}
+        rows: list[dict] = []
+        for idx, entry in enumerate(self.targets):
+            row: dict = {
+                "target_entry": entry,
+                "target_row": idx,
+                "used": idx in accepted_targets,
+            }
+            candidate = best.get(idx)
+            if candidate is not None:
+                row.update(
+                    {
+                        "proposed_source": candidate.source,
+                        "proposed_source_row": candidate.source_row,
+                        "decision": "match" if candidate.decision else "no match",
+                        "method": candidate.method,
+                        "fuzzy_score": round(candidate.fuzzy, 1),
+                        "strict_score": round(candidate.strict, 1),
+                        "laya_same_prob": (
+                            None if candidate.same_prob is None else round(candidate.same_prob, 4)
+                        ),
+                        "laya_confidence": (
+                            None if candidate.confidence is None else round(candidate.confidence, 4)
+                        ),
+                        "combined_score": round(candidate.combined, 4),
+                    }
+                )
+            else:
+                fallback = self._fuzzy_proposal(entry)
+                if fallback is not None:
+                    source, source_row, score = fallback
+                    row.update(
+                        {
+                            "proposed_source": source,
+                            "proposed_source_row": source_row,
+                            "decision": "no match",
+                            "method": "fuzzy-proposal",
+                            "fuzzy_score": round(score, 1),
+                            "strict_score": None,
+                            "laya_same_prob": None,
+                            "laya_confidence": None,
+                            "combined_score": round(score / 100.0, 4),
+                        }
+                    )
+                else:
+                    row.update(
+                        {
+                            "proposed_source": None,
+                            "proposed_source_row": None,
+                            "decision": "no match",
+                            "method": None,
+                            "fuzzy_score": None,
+                            "strict_score": None,
+                            "laya_same_prob": None,
+                            "laya_confidence": None,
+                            "combined_score": None,
+                        }
+                    )
+            rows.append(row)
+        return sorted(rows, key=lambda r: (normalize(r["target_entry"]), r["target_row"]))
+
+    def unmatched_target_rows(self) -> list[dict]:
+        """Target entries (receipts) that no source matched, with best proposal."""
+        return [row for row in self.target_rows() if not row["used"]]
+
     def summary(self) -> dict:
         matched_sources = {p.source_row for p in self.matched_pairs()}
+        used_targets = {p.target_row for p in self.pairs if p.decision}
         return {
             "source_count": len(self.best_by_source) + len(self.unmatched),
             "matched_source_count": len(matched_sources),
             "unmatched_source_count": len(self.unmatched),
+            "target_count": len(self.targets),
+            "matched_target_count": len(used_targets),
+            "unmatched_target_count": len(self.targets) - len(used_targets),
             "matched_pair_count": len(self.matched_pairs()),
             "review_count": len(self.review_pairs()),
             "pairs_evaluated": len(self.pairs),
@@ -213,7 +310,7 @@ def match_lists(
 ) -> MatchReport:
     """Match every source name against the target list."""
     cfg = config or MatchConfig()
-    report = MatchReport()
+    report = MatchReport(targets=list(target_names), sources=list(source_names))
 
     source_norm = [normalize(n, strip_org_suffixes=cfg.strip_org_suffixes) for n in source_names]
     target_norm = [normalize(n, strip_org_suffixes=cfg.strip_org_suffixes) for n in target_names]

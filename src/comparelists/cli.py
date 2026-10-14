@@ -261,11 +261,13 @@ def main(argv: list[str] | None = None) -> int:
     best_path = os.path.join(args.output_dir, "best_matches.csv")
     review_path = os.path.join(args.output_dir, "needs_review.csv")
     unmatched_path = os.path.join(args.output_dir, "unmatched.csv")
+    targets_path = os.path.join(args.output_dir, "target_matches.csv")
 
     write_results(pairs_path, [p.as_row() for p in report.all_pairs_sorted()])
     write_results(best_path, [p.as_row() for p in report.best_matches()])
     write_results(review_path, [p.as_row() for p in report.review_pairs()])
-    write_results(unmatched_path, report.unmatched_with_candidates())
+    write_results(targets_path, report.target_rows())
+    write_results(unmatched_path, report.unmatched_target_rows())
 
     summary = report.summary()
     print("\n--- summary ---")
@@ -273,10 +275,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{key}: {value}")
     print(f"elapsed: {time.time() - started:.1f}s")
     print("\nwritten:")
-    print(f"  {pairs_path}       (every pair evaluated)")
+    print(f"  {targets_path}      (every target entry with its proposed source)")
+    print(f"  {unmatched_path}   (targets with no source match, best proposal shown)")
     print(f"  {best_path}        (best match per source name)")
     print(f"  {review_path}      (borderline pairs worth a human look)")
-    print(f"  {unmatched_path}   (source names with no match)")
+    print(f"  {pairs_path}       (every pair evaluated)")
     return 0
 
 

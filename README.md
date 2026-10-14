@@ -12,12 +12,21 @@ decision model.
 - Ship a web UI (drag-and-drop CSVs) **and** a command-line tool.
 - Nothing is uploaded. There is no API, no account, no server.
 
-Output tells you which source names were found, which second-list name they
-matched, the model's probability and confidence, plus three review files:
-`best_matches.csv`, `needs_review.csv`, `unmatched.csv`, `all_pairs.csv`. All of
-them are sorted alphabetically by source name. `unmatched.csv` also lists each
-unmatched name's **closest candidate** with its scores, so it doubles as a review
-queue.
+Outputs (all sorted alphabetically):
+
+- **`target_matches.csv`** - every target entry (receipt/comment) with its
+  **proposed source** (student) and score. The target is the thing that must be
+  covered, so **every** target gets a proposal, even a weak fuzzy fallback
+  (`method=fuzzy-proposal`) when no model cleared the threshold.
+- **`unmatched.csv`** - the target entries that **no source matched**, each with
+  its best proposed source for a human to review.
+- **`best_matches.csv`** - best match per source name (source-centric).
+- **`needs_review.csv`** - borderline source/target pairs.
+- **`all_pairs.csv`** - every pair evaluated.
+
+A student (source) with no match is expected: it usually means the family has not
+paid yet. An **unmatched target** is the real problem, because a receipt that
+cannot be attributed to a student needs attention.
 
 ---
 
