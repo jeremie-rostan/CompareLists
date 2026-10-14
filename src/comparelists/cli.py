@@ -151,8 +151,11 @@ def _prefetch(args) -> int:
         primary.ensure_loaded()
         print(f"LM Studio reachable at {args.base_url}; model {primary.model} is loaded")
     if secondary is not None:
-        secondary.ensure_loaded()
-        print(f"LM Studio reachable at {args.base_url}; model {secondary.model} is loaded")
+        try:
+            secondary.ensure_loaded()
+            print(f"LM Studio reachable at {args.base_url}; model {secondary.model} is loaded")
+        except Exception as exc:
+            print(f"note: LLM stage unavailable, runs will use Laya only: {exc}", file=sys.stderr)
     print("done")
     return 0
 
