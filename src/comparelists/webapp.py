@@ -228,14 +228,114 @@ def run_comparison(
     )
 
 
+CSS = """
+:root, .gradio-container {
+  --body-background-fill: transparent;
+  --background-fill-primary: #ffffff;
+  --background-fill-secondary: #f7fafc;
+  --block-background-fill: #ffffff;
+  --block-border-color: #e2e8f0;
+  --block-radius: 10px;
+  --block-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --button-primary-background-fill: #457b9d;
+  --button-primary-background-fill-hover: #1d3557;
+  --button-primary-text-color: #ffffff;
+  --button-secondary-background-fill: #a8dadc;
+  --button-secondary-background-fill-hover: #81c3d7;
+  --button-secondary-text-color: #1d3557;
+  --color-accent: #457b9d;
+  --color-accent-soft: #e1f5fe;
+  --link-text-color: #457b9d;
+  --body-text-color: #1d3557;
+  --input-border-color: #dddddd;
+  --input-background-fill: #ffffff;
+  color-scheme: light;
+}
+html, body {
+  background: linear-gradient(135deg, #a8dadc 0%, #457b9d 100%) !important;
+  background-attachment: fixed !important;
+  min-height: 100vh;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+.gradio-container {
+  background: transparent !important;
+  max-width: 1200px !important;
+  margin: 0 auto !important;
+}
+/* white cards */
+.gradio-container .block,
+.gradio-container .form,
+.gradio-container .panel {
+  border-radius: 10px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+  background: #ffffff !important;
+}
+h1, h2, h3, .prose h1, .prose h2, .prose h3 { color: #1d3557 !important; }
+.prose, .prose p, label, .gr-box { color: #1d3557; }
+/* header */
+.cl-header {
+  display: flex; align-items: center; gap: 20px;
+  background: #ffffff; border-radius: 10px; padding: 20px;
+  margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+.cl-logo {
+  width: 60px; height: 60px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #1d3557; color: #ffffff; font-weight: 700; letter-spacing: .08em;
+}
+.cl-header h1 { margin: 0 0 8px; font-size: 28px; color: #1d3557; }
+.cl-sub { color: #457b9d; }
+/* buttons */
+button.primary, .gradio-container button.primary {
+  background: #457b9d !important; color: #ffffff !important;
+  border: none !important; border-radius: 5px !important;
+}
+button.primary:hover { background: #1d3557 !important; }
+button.secondary, .gradio-container button.secondary {
+  background: #a8dadc !important; color: #1d3557 !important;
+  border: none !important; border-radius: 5px !important;
+}
+button.secondary:hover { background: #81c3d7 !important; }
+/* inputs */
+input, select, textarea {
+  border: 1px solid #dddddd !important;
+  border-radius: 5px !important;
+}
+/* tabs */
+.tab-nav button { color: #718096 !important; font-weight: 600; }
+.tab-nav button.selected {
+  color: #457b9d !important;
+  border-bottom: 2px solid #457b9d !important;
+}
+/* tables */
+.gradio-container table { border-collapse: collapse !important; width: 100% !important; }
+.gradio-container table th {
+  background: #e1f5fe !important; color: #1d3557 !important; font-weight: 600 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+.gradio-container table td { border-bottom: 1px solid #e2e8f0 !important; }
+.gradio-container table tr:hover { background: #f0f9ff !important; }
+/* summary cards render as <ul>/<p>; give them the light-teal accent */
+.cl-note { color: #718096; }
+"""
+
+
 def build_ui() -> gr.Blocks:
     with gr.Blocks(title="CompareLists - local name matching") as demo:
+        gr.HTML(
+            '<div class="cl-header">'
+            '<div class="cl-logo">CL</div>'
+            '<div>'
+            '<h1>CompareLists</h1>'
+            '<div class="cl-sub">Local name matching &middot; Laya first, Qwen on unmatched</div>'
+            "</div>"
+            "</div>"
+        )
         gr.Markdown(
-            "# CompareLists\n"
-            "Find the names from your **source of truth** inside a second list, "
-            "locally. Matching handles different order, spelling and accents using "
-            "the [Laya](https://huggingface.co/convaiinnovations/laya) decision model "
-            "running on this machine. No name is sent anywhere."
+            "Match the names from your **source of truth** against a second list, "
+            "locally. Nothing is sent anywhere. **Targets (receipts)** are what must "
+            "be covered; a student (source) with no match just means no payment yet."
         )
 
         with gr.Row():
@@ -361,6 +461,7 @@ def main(argv: list[str] | None = None) -> int:
         server_port=args.port,
         share=args.share,
         show_error=True,
+        css=CSS,
     )
     return 0
 
