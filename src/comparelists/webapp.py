@@ -456,12 +456,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    open_browser = os.environ.get("COMPARELISTS_OPEN_BROWSER") == "1"
     build_ui().launch(
         server_name=args.host,
         server_port=args.port,
         share=args.share,
         show_error=True,
         css=CSS,
+        inbrowser=open_browser,
     )
     return 0
 

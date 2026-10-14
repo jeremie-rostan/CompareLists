@@ -76,6 +76,23 @@ uv sync --extra dev
 The first prediction downloads the model (~30-60 s). Every run after that starts
 in a few seconds.
 
+### One-click launchers (for non-technical users)
+
+The repo ships double-clickable launchers — no terminal typing needed:
+
+- **`Install CompareLists.command`** (macOS) / **`Install CompareLists.bat`**
+  (Windows): installs `uv` if missing, installs dependencies, and downloads the
+  model once. Double-click it first.
+- **`Run CompareLists.command`** / **`Run CompareLists.bat`**: starts the web app
+  and opens the browser. Double-click it whenever you want to use the app.
+
+macOS may block a downloaded `.command` the first time (right-click → **Open**),
+or if the executable bit was lost from a ZIP, restore it with:
+
+```bash
+chmod +x *.command
+```
+
 ## Use it — command line
 
 ```bash
