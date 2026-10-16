@@ -4,7 +4,7 @@ The Laya model does the actual semantic decision, but we still need a cheap,
 deterministic pre-pass so we never score the full Cartesian product of two
 lists. Normalisation is intentionally aggressive: it removes accents,
 punctuation and casing, and a *signature* form sorts the tokens so that
-"Johnson, Katherine" and "Katherine Johnson" collapse to the same key.
+"Raghunathan, Nikhil" and "Nikhil Raghunathan" collapse to the same key.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ _PUNCT_RE = re.compile(r"[^0-9a-z\u00c0-\uffff]+", re.UNICODE)
 _WS_RE = re.compile(r"\s+")
 
 # Letters NFKD does not fold to ASCII. Folding them helps candidate blocking
-# catch transliterated spellings (e.g. "Þórsson" vs "Thorsson").
+# catch transliterated spellings (e.g. "Þórdís" vs "Thordis").
 _TRANSLITERATION = str.maketrans(
     {
         "þ": "th", "ð": "d", "æ": "ae", "ø": "o", "å": "a", "ß": "ss",
@@ -35,7 +35,7 @@ ORG_SUFFIXES = {
 
 
 def strip_accents(text: str) -> str:
-    """Return *text* without diacritics (e.g. ``García`` -> ``Garcia``)."""
+    """Return *text* without diacritics (e.g. ``Bektaş`` -> ``Bektas``)."""
     decomposed = unicodedata.normalize("NFKD", text)
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
@@ -78,7 +78,7 @@ def canonicalize_comment(text: str) -> str:
     Training comments use a space before the dash, none after, and always an
     amount; models are sensitive to those details. This folds unicode dashes,
     normalises separators, and appends a neutral amount when none is present.
-    Hyphens inside names (``Wei-Lun``) are left untouched.
+    Hyphens inside names (``Raghunathan-Kovalenko``) are left untouched.
     """
     value = str(text)
     value = value.replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-")

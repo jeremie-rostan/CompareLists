@@ -27,8 +27,8 @@ class FakeScorer:
 def test_exact_order_insensitive_match_skips_model():
     scorer = FakeScorer()
     report = match_lists(
-        ["Katherine Johnson"],
-        ["Johnson, Katherine"],
+        ["Nikhil Raghunathan"],
+        ["Raghunathan, Nikhil"],
         scorer=scorer,
         config=MatchConfig(),
     )
@@ -40,10 +40,10 @@ def test_exact_order_insensitive_match_skips_model():
 
 
 def test_model_decides_on_gray_zone_pair():
-    scorer = FakeScorer({frozenset(("bob smith", "robert smith")): 0.91})
+    scorer = FakeScorer({frozenset(("toby reinhardt", "tobias reinhardt")): 0.91})
     report = match_lists(
-        ["Robert Smith"],
-        ["Bob Smith"],
+        ["Tobias Reinhardt"],
+        ["Toby Reinhardt"],
         scorer=scorer,
         config=MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
     )
@@ -54,22 +54,22 @@ def test_model_decides_on_gray_zone_pair():
 
 
 def test_below_threshold_is_unmatched():
-    scorer = FakeScorer({frozenset(("jon smith", "jane doe")): 0.1})
+    scorer = FakeScorer({frozenset(("callum fraser", "fiona fraser")): 0.1})
     report = match_lists(
-        ["Jon Smith"],
-        ["Jane Doe"],
+        ["Callum Fraser"],
+        ["Fiona Fraser"],
         scorer=scorer,
         config=MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
     )
     assert report.best_matches() == []
-    assert report.unmatched == [(0, "Jon Smith")]
+    assert report.unmatched == [(0, "Callum Fraser")]
 
 
 def test_high_fuzzy_auto_accepts_without_model():
     scorer = FakeScorer()
     report = match_lists(
-        ["Jonathon"],
-        ["Jonathan"],
+        ["Kovalenko"],
+        ["Kovalenk"],
         scorer=scorer,
         config=MatchConfig(auto_accept_ratio=85.0),
     )
@@ -81,30 +81,30 @@ def test_high_fuzzy_auto_accepts_without_model():
 def test_best_match_per_source_returns_highest_combined():
     scorer = FakeScorer(
         {
-            frozenset(("robert smith", "bob smith")): 0.8,
-            frozenset(("robert smith", "rob smith")): 0.95,
+            frozenset(("tobias reinhardt", "toby reinhardt")): 0.8,
+            frozenset(("tobias reinhardt", "tobi reinhardt")): 0.95,
         }
     )
     report = match_lists(
-        ["Robert Smith"],
-        ["Bob Smith", "Rob Smith"],
+        ["Tobias Reinhardt"],
+        ["Toby Reinhardt", "Tobi Reinhardt"],
         scorer=scorer,
         config=MatchConfig(accept_threshold=0.5, auto_accept_ratio=99.0, max_candidates=5),
     )
     best = report.best_matches()[0]
-    assert best.target == "Rob Smith"
+    assert best.target == "Tobi Reinhardt"
 
 
 def test_outputs_are_alphabetical():
     scorer = FakeScorer()
     report = match_lists(
-        ["Zoe", "Ana", "Mike"],
-        ["Zoe", "Ana"],
+        ["Zara", "Amara", "Miles"],
+        ["Zara", "Amara"],
         scorer=scorer,
         config=MatchConfig(),
     )
-    assert [p.source for p in report.best_matches()] == ["Ana", "Zoe"]
-    assert [name for _, name in report.unmatched_sorted()] == ["Mike"]
+    assert [p.source for p in report.best_matches()] == ["Amara", "Zara"]
+    assert [name for _, name in report.unmatched_sorted()] == ["Miles"]
     assert [p.source for p in report.all_pairs_sorted()] == sorted(
         p.source for p in report.pairs
     )
@@ -113,8 +113,8 @@ def test_outputs_are_alphabetical():
 def test_subset_matches_reversed_and_noisy_target_without_model():
     scorer = FakeScorer()
     report = match_lists(
-        ["Ana García"],
-        ["García Juan, Ana García"],
+        ["Camila Ibarra"],
+        ["Ibarra Osvaldo, Camila Ibarra"],
         scorer=scorer,
         config=MatchConfig(),
     )
@@ -127,9 +127,9 @@ def test_subset_matches_reversed_and_noisy_target_without_model():
 def test_subset_tolerates_extra_surnames_and_omitted_middle_names():
     scorer = FakeScorer()
     for source, target in [
-        ("Ana García", "Ana García Pérez"),
-        ("Ana María García", "García, Ana"),
-        ("Pedro Ramírez", "María González Pedro Ramírez"),
+        ("Camila Ibarra", "Camila Ibarra Fuentes"),
+        ("Mireya Lucía Moreno", "Moreno, Mireya Lucía"),
+        ("Mateo Quintana", "Rafael Quintana Mateo Quintana"),
     ]:
         report = match_lists([source], [target], scorer=scorer, config=MatchConfig())
         assert report.best_matches()[0].decision, (source, target)
@@ -138,28 +138,28 @@ def test_subset_tolerates_extra_surnames_and_omitted_middle_names():
 
 def test_single_token_source_is_not_auto_matched_by_subset():
     scorer = FakeScorer()
-    report = match_lists(["Ana"], ["Ana García"], scorer=scorer, config=MatchConfig())
+    report = match_lists(["Sasha"], ["Sasha Novak"], scorer=scorer, config=MatchConfig())
     assert all(p.method != "subset" for p in report.pairs)
 
 
 def test_unmatched_includes_closest_candidate():
-    scorer = FakeScorer({frozenset(("robert smith", "bob smith")): 0.1})
+    scorer = FakeScorer({frozenset(("tobias reinhardt", "toby reinhardt")): 0.1})
     report = match_lists(
-        ["Robert Smith"],
-        ["Bob Smith"],
+        ["Tobias Reinhardt"],
+        ["Toby Reinhardt"],
         scorer=scorer,
         config=MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
     )
     rows = report.unmatched_with_candidates()
-    assert rows[0]["source_name"] == "Robert Smith"
-    assert rows[0]["closest_candidate"] == "Bob Smith"
+    assert rows[0]["source_name"] == "Tobias Reinhardt"
+    assert rows[0]["closest_candidate"] == "Toby Reinhardt"
     assert rows[0]["closest_laya_same_prob"] == 0.1
 
 
 def test_unmatched_with_empty_target_has_no_candidate():
-    report = match_lists(["Solo"], [], config=MatchConfig(use_model=False))
+    report = match_lists(["Gerald"], [], config=MatchConfig(use_model=False))
     rows = report.unmatched_with_candidates()
-    assert rows == [{"source_name": "Solo", "source_row": 0}]
+    assert rows == [{"source_name": "Gerald", "source_row": 0}]
 
 
 class BatchScorer:
@@ -181,7 +181,7 @@ class BatchScorer:
         self.batch_calls += 1
         out = []
         for candidate in candidates:
-            hit = source == "Robert Smith" and candidate == "Bob Smith"
+            hit = source == "Tobias Reinhardt" and candidate == "Toby Reinhardt"
             out.append(
                 {
                     "same_prob": 0.95 if hit else 0.02,
@@ -195,13 +195,13 @@ class BatchScorer:
 def test_batched_scorer_is_used_once_per_source():
     scorer = BatchScorer()
     report = match_lists(
-        ["Robert Smith"],
-        ["Bob Smith", "Jane Doe"],
+        ["Tobias Reinhardt"],
+        ["Toby Reinhardt", "Fiona Fraser"],
         scorer=scorer,
         config=MatchConfig(accept_threshold=0.5, auto_accept_ratio=99.0),
     )
     best = report.best_matches()[0]
-    assert best.target == "Bob Smith"
+    assert best.target == "Toby Reinhardt"
     assert best.method == "llm"
     assert scorer.batch_calls == 1
 
@@ -210,50 +210,50 @@ def test_cascade_runs_secondary_only_on_unmatched_names():
     primary = FakeScorer(default=0.0)
     secondary = BatchScorer()
     report = match_lists_cascade(
-        ["Robert Smith", "Nobody Here"],
-        ["Bob Smith", "Jane Doe"],
+        ["Tobias Reinhardt", "Nobody Here"],
+        ["Toby Reinhardt", "Fiona Fraser"],
         primary,
         secondary,
         MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
         MatchConfig(accept_threshold=0.5, auto_accept_ratio=99.0),
     )
     matches = {p.source: p.target for p in report.best_matches()}
-    assert matches["Robert Smith"] == "Bob Smith"
+    assert matches["Tobias Reinhardt"] == "Toby Reinhardt"
     assert report.unmatched == [(1, "Nobody Here")]
 
 
 def test_cascade_skips_secondary_when_primary_matches_everything():
-    primary = FakeScorer({frozenset(("robert smith", "bob smith")): 0.9})
+    primary = FakeScorer({frozenset(("tobias reinhardt", "toby reinhardt")): 0.9})
     secondary = BatchScorer()
     report = match_lists_cascade(
-        ["Robert Smith"],
-        ["Bob Smith"],
+        ["Tobias Reinhardt"],
+        ["Toby Reinhardt"],
         primary,
         secondary,
         MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
         MatchConfig(),
     )
-    assert report.best_matches()[0].target == "Bob Smith"
+    assert report.best_matches()[0].target == "Toby Reinhardt"
     assert secondary.batch_calls == 0
 
 
 def test_target_centric_unmatched_and_proposal():
-    scorer = FakeScorer({frozenset(("robert smith", "bob smith")): 0.9})
+    scorer = FakeScorer({frozenset(("tobias reinhardt", "toby reinhardt")): 0.9})
     report = match_lists(
-        ["Robert Smith"],
-        ["Bob Smith", "Jane Doe"],
+        ["Tobias Reinhardt"],
+        ["Toby Reinhardt", "Fiona Fraser"],
         scorer=scorer,
         config=MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
     )
     by_entry = {row["target_entry"]: row for row in report.target_rows()}
-    assert by_entry["Bob Smith"]["used"] is True
-    assert by_entry["Bob Smith"]["proposed_source"] == "Robert Smith"
-    assert by_entry["Jane Doe"]["used"] is False
+    assert by_entry["Toby Reinhardt"]["used"] is True
+    assert by_entry["Toby Reinhardt"]["proposed_source"] == "Tobias Reinhardt"
+    assert by_entry["Fiona Fraser"]["used"] is False
 
     unmatched = report.unmatched_target_rows()
-    assert [row["target_entry"] for row in unmatched] == ["Jane Doe"]
+    assert [row["target_entry"] for row in unmatched] == ["Fiona Fraser"]
     # the proposed candidate for an unmatched target comes from the SOURCE list
-    assert unmatched[0]["proposed_source"] == "Robert Smith"
+    assert unmatched[0]["proposed_source"] == "Tobias Reinhardt"
 
     summary = report.summary()
     assert summary["target_count"] == 2
@@ -262,10 +262,10 @@ def test_target_centric_unmatched_and_proposal():
 
 
 def test_summary_counts():
-    scorer = FakeScorer({frozenset(("robert smith", "bob smith")): 0.9})
+    scorer = FakeScorer({frozenset(("tobias reinhardt", "toby reinhardt")): 0.9})
     report = match_lists(
-        ["Robert Smith", "Nobody Here"],
-        ["Bob Smith", "Someone Else"],
+        ["Tobias Reinhardt", "Nobody Here"],
+        ["Toby Reinhardt", "Someone Else"],
         scorer=scorer,
         config=MatchConfig(accept_threshold=0.6, auto_accept_ratio=99.0),
     )

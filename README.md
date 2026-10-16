@@ -4,9 +4,9 @@ Match a **source-of-truth list of names** against a **second list**, entirely on
 your own machine, using the local [Laya](https://huggingface.co/convaiinnovations/laya)
 decision model.
 
-- Handles different word order (`Johnson, Katherine` = `Katherine Johnson`),
-  accents (`García` = `Garcia`), spelling variants, nicknames (`Bob` = `Robert`)
-  and abbreviations (`Acme Corp` = `Acme Corporation`).
+- Handles different word order (`Raghunathan, Nikhil` = `Nikhil Raghunathan`),
+  accents (`Bektaş` = `Bektash`), spelling variants, nicknames (`Toby` = `Tobias`)
+  and abbreviations (`Vespera Corp` = `Vespera Corporation`).
 - Laya is a non-generative decision model: it returns calibrated probabilities,
   never invents text, and runs on-device after a one-time download.
 - Ship a web UI (drag-and-drop CSVs) **and** a command-line tool.
@@ -193,7 +193,7 @@ pairs, no parent comment), the checkpoints trade off as follows:
 
 | Checkpoint | recall | precision | misses | false positive |
 | --- | --- | --- | --- | --- |
-| `jeremierostan/laya-pairmatch` (default) | 0.95 | 0.86 | — | `Smith` vs `Roberta Smith` |
+| `jeremierostan/laya-pairmatch` (default) | 0.95 | 0.86 | — | `Reinhardt` vs `Robertina Reinhardt` |
 | `convaiinnovations/laya` (base) | 1.00 | 0.95 | none | shared-surname trap |
 
 The base checkpoint has marginally better recall on *bare* name pairs; pairmatch
@@ -273,10 +273,10 @@ model to a third-party host if the data must stay local.
 Rosters often put more than one name in a single target cell:
 
 ```
-"María González Pedro Ramírez"     parent first, then the student
-"Juan Pérez y Lucía Pérez"         two siblings joined by "y"
-"Kathy and Erica Thompson"         two students joined by "and"
-"Roberto Sánchez, Ana Sánchez"     comma separated
+"Rafael Quintana Mateo Quintana"     parent first, then the student
+"Karim Haddad y Noor Haddad"         two siblings joined by "y"
+"Ingrid and Freya Solberg"           two students joined by "and"
+"Osvaldo Ibarra, Camila Ibarra"      comma separated
 ```
 
 You do **not** need to split these columns. The model is asked, for each source
@@ -294,10 +294,10 @@ uv run comparelists examples/parents_source.csv examples/parents_target.csv \
 
 | Source | Target entry | Result |
 | --- | --- | --- |
-| `Pedro Ramírez` | `María González Pedro Ramírez` | match |
-| `Lucía Pérez` | `Juan Pérez y Lucía Pérez` | match |
-| `Erica Thompson` | `Kathy and Erica Thompson` | match |
-| `Ana Sánchez` | `Roberto Sánchez, Ana Sánchez` | match |
+| `Mateo Quintana` | `Rafael Quintana Mateo Quintana` | match |
+| `Noor Haddad` | `Karim Haddad y Noor Haddad` | match |
+| `Freya Solberg` | `Ingrid and Freya Solberg` | match |
+| `Camila Ibarra` | `Osvaldo Ibarra, Camila Ibarra` | match |
 
 The `matched_entry` column shows the original target cell so you can audit each
 match.

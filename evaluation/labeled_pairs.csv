@@ -1,31 +1,31 @@
 category,source,target,expected
-reversed,Katherine Johnson,"Johnson, Katherine",1
-reversed,Ana García,"García, Ana",1
-reversed,Wei Li,Li Wei,1
-reversed,Nguyen Van An,An Nguyen,1
-reversed,Mohammed Al-Rashid,"Al Rashid, Muhammad",1
-reversed+noise,Pedro Ramírez,"Ramírez, Pedro (father)",1
-roster,Pedro Ramírez,María González Pedro Ramírez,1
-roster,Erica Thompson,Kathy and Erica Thompson,1
-roster,Lucía Pérez,Juan Pérez y Lucía Pérez,1
-roster,Ana García,"García Juan, Ana García",1
-midname,Ana García,Ana Maria Garcia,1
-extra-surname,Ana García,Ana García Pérez,1
-nickname,Robert Smith,Bob Smith,1
-nickname,Robert Smith,"Smith, Bob",1
-nickname,William Brown,Bill Brown,1
-nickname,Elizabeth Taylor,Liz Taylor,1
-accent,José Martínez,Jose Martinez,1
-translit,Mohammed Al-Rashid,Muhammad Al Rashid,1
-context,Ana García,mama de Ana García,1
-reversed,María José Fernández,"Fernández, María José",1
-trap-sibling,Erica Thompson,Kathy Thompson,0
-trap-child,Ana García,"García, Pedro",0
-trap-child,Ana García,Pedro García,0
-trap-firstname,John Smith,Jane Smith,0
-trap-firstname,Mohammed Al-Rashid,Ahmed Al-Rashid,0
-trap-surname,Ana García,Ana Lopez,0
-trap-surname,Lucía Pérez,Pedro Pérez,0
-trap-spelling,Robert Smith,"Smith, Roberta",0
-trap-unrelated,Michael Chen,Michelle Chen,0
-trap-unrelated,Michael Chen,Someone Unrelated,0
+reversed,Nikhil Raghunathan,"Raghunathan, Nikhil",1
+reversed,Camila Ibarra,"Ibarra, Camila",1
+reversed,Kenji Watanabe,"Watanabe, Kenji",1
+reversed,Amara Okafor,"Okafor, Amara",1
+reversed,Farid Al-Masri,"Al Masri, Farid",1
+reversed+noise,Mateo Quintana,"Quintana, Mateo (father)",1
+roster,Mateo Quintana,Rafael Quintana Mateo Quintana,1
+roster,Freya Solberg,Ingrid and Freya Solberg,1
+roster,Noor Haddad,Karim Haddad y Noor Haddad,1
+roster,Camila Ibarra,"Osvaldo Ibarra, Camila Ibarra",1
+midname,Camila Ibarra,Camila Renata Ibarra,1
+extra-surname,Camila Ibarra,Camila Ibarra Fuentes,1
+nickname,Tobias Reinhardt,Toby Reinhardt,1
+nickname,Tobias Reinhardt,"Reinhardt, Toby",1
+nickname,Theodore Marsh,Ted Marsh,1
+nickname,Penelope Fox,Penny Fox,1
+accent,Aïcha Diallo,Aicha Diallo,1
+translit,Zeynep Bektaş,Zeynep Bektash,1
+context,Camila Ibarra,madre de Camila Ibarra,1
+reversed,Mireya Lucía Moreno,"Moreno, Mireya Lucía",1
+trap-sibling,Freya Solberg,Ingrid Solberg,0
+trap-child,Camila Ibarra,"Ibarra, Osvaldo",0
+trap-child,Camila Ibarra,Osvaldo Ibarra,0
+trap-firstname,Callum Fraser,Fiona Fraser,0
+trap-firstname,Farid Al-Masri,Tariq Al-Masri,0
+trap-surname,Camila Ibarra,Camila Duarte,0
+trap-surname,Noor Haddad,Rami Haddad,0
+trap-spelling,Tobias Reinhardt,"Reinhardt, Robertina",0
+trap-unrelated,Sasha Novak,Mischa Novak,0
+trap-unrelated,Sasha Novak,Random Stranger,0

@@ -79,18 +79,18 @@ SYSTEM_PROMPT = (
 # Few-shot examples: (student, [candidates], parsed_results)
 FEW_SHOT: list[tuple[str, list[str], dict]] = [
     (
-        "ALVAREZ MENDOZA, Mateo",
-        ["CARLOS ALVAREZ -Mateo Alvarez Mendoza ($32)"],
+        "QUINTANA IBARRA, Camila",
+        ["RAFAEL QUINTANA -Camila Quintana Ibarra ($32)"],
         {"results": [{"index": 0, "match": True, "confidence": 0.98}]},
     ),
     (
-        "GONZALEZ LOPEZ, Ana",
-        ["CARLOS GONZALEZ -Sofia Gonzalez ($16)"],
+        "HADDAD, Noor",
+        ["KARIM HADDAD -Rami Haddad ($16)"],
         {"results": [{"index": 0, "match": False, "confidence": 0.96}]},
     ),
     (
-        "LARRINAGA CARLES, Olivia",
-        ["DAVID JOSUE LARRINAGA CHACIN -Olivia Larrinaga ($0)"],
+        "QUINTANA IBARRA, Camila",
+        ["RAFAEL QUINTANA -Camila Quintana ($0)"],
         {"results": [{"index": 0, "match": True, "confidence": 0.9}]},
     ),
 ]

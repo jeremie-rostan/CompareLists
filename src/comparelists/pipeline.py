@@ -282,7 +282,7 @@ def _partial_targets(source_name: str, target_names: list[str]) -> list[int]:
     """Targets whose child segment names a subset of the source student.
 
     Handles comments that give the given name plus only *some* surnames, e.g.
-    roster ``"Larrinaga Carles, Olivia"`` vs comment ``"... -Olivia Larrinaga"``.
+    roster ``"Quintana Ibarra, Camila"`` vs comment ``"... -Camila Quintana"``.
     Requires the given name and at least one surname to be present, so siblings
     (different given name) and different families do not match.
     """

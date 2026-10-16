@@ -11,11 +11,11 @@ from comparelists.llm_matcher import (
 
 
 def test_build_messages_includes_source_and_candidates():
-    messages = build_messages("Larrinaga Carles, Olivia", ["PARENT -Olivia Larrinaga ($0)"])
+    messages = build_messages("Quintana Ibarra, Camila", ["PARENT -Camila Quintana ($0)"])
     assert messages[0]["role"] == "system"
     assert messages[-1]["role"] == "user"
-    assert "Larrinaga Carles, Olivia" in messages[-1]["content"]
-    assert "0. PARENT -Olivia Larrinaga ($0)" in messages[-1]["content"]
+    assert "Quintana Ibarra, Camila" in messages[-1]["content"]
+    assert "0. PARENT -Camila Quintana ($0)" in messages[-1]["content"]
 
 
 def test_parse_results_maps_match_and_confidence():
@@ -65,7 +65,7 @@ def test_score_many_posts_and_parses():
 
     scorer = LMStudioScorer(base_url="http://localhost:1234/v1", model="test-model")
     with mock.patch("urllib.request.urlopen", return_value=_Resp()) as patched:
-        results = scorer.score_many("Garcia, Ana", ["PARENT -Ana Garcia ($16)"])
+        results = scorer.score_many("Ibarra, Camila", ["PARENT -Camila Ibarra ($16)"])
     assert results[0]["same_prob"] == 0.85
     sent = json.loads(patched.call_args[0][0].data.decode("utf-8"))
     assert sent["response_format"]["type"] == "json_schema"
@@ -97,7 +97,7 @@ def test_score_many_falls_back_when_schema_rejected():
     good = _Resp(json.dumps(payload).encode("utf-8"))
     scorer = LMStudioScorer(model="test-model")
     with mock.patch("urllib.request.urlopen", side_effect=[bad, good]) as patched:
-        results = scorer.score_many("Garcia, Ana", ["PARENT -Ana Garcia ($16)"])
+        results = scorer.score_many("Ibarra, Camila", ["PARENT -Camila Ibarra ($16)"])
     assert results[0]["same_prob"] == 0.8
     assert patched.call_count == 2
     assert scorer._structured_ok is False

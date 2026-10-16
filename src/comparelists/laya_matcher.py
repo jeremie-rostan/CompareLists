@@ -37,8 +37,8 @@ BASE_QUESTIONS = {
             "entry from a target list and may contain extra words or other people (for "
             "example a parent next to a child, or siblings). Decide whether the target "
             "entry refers to the same person as the source name, allowing nicknames and "
-            "short forms of the same first name (Bob = Robert, Bill = William, "
-            "Liz = Elizabeth), different word order, spelling variations, accents, "
+            "short forms of the same first name (Toby = Tobias, Ted = Theodore, "
+            "Penny = Penelope), different word order, spelling variations, accents, "
             "omitted middle names, initials and abbreviations."
         ),
         "criteria": {
