@@ -41,7 +41,7 @@ cannot be attributed to a student needs attention.
    the model — and needs at least two tokens on each side, so a lone common first
    name cannot match. A second rule handles partial references: if the comment's
    child segment contains the student's **given name and at least one surname**
-   (e.g. roster `Larrinaga Carles, Olivia` vs comment `... -Olivia Larrinaga`),
+   (e.g. roster `Larres Bono, Oliver` vs comment `... -Oliver Larres`),
    it matches without the model.
 3. **Block**: for each remaining source name, RapidFuzz keeps only the top-K most
    similar target entries, so we never run the model on the full Cartesian
